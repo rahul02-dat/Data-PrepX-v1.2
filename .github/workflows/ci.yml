@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  gateway-go:
+    name: gateway-go (lint + test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/gateway-go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - name: gofmt check
+        run: |
+          fmt_out="$(gofmt -l .)"
+          if [ -n "$fmt_out" ]; then
+            echo "gofmt found unformatted files:"
+            echo "$fmt_out"
+            exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+      - name: go build
+        run: go build ./...
+      - name: go test
+        run: go test ./... -v
+
+  ml-engine-py:
+    name: ml-engine-py (lint + test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/ml-engine-py
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -e .[dev]
+      - name: ruff
+        run: ruff check .
+      - name: black --check
+        run: black --check .
+      - name: pytest
+        run: pytest -v
+
+  agent-orchestrator:
+    name: agent-orchestrator (lint + test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/agent-orchestrator
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -e .[dev]
+      - name: ruff
+        run: ruff check .
+      - name: black --check
+        run: black --check .
+      - name: pytest
+        run: pytest -v
+
+  frontend-react:
+    name: frontend-react (typecheck + test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/frontend-react
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install dependencies
+        run: npm install
+      - name: Typecheck
+        run: npx tsc -b
+      - name: Test
+        run: npx vitest run
+
+  compose-config:
+    name: docker compose config validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate compose files parse
+        run: |
+          docker compose -f docker-compose.yml config > /dev/null
+          docker compose -f docker-compose.yml -f docker-compose.dev.yml config > /dev/null

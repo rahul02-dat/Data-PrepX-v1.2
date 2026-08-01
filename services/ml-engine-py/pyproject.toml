@@ -1,0 +1,35 @@
+[project]
+name = "dataprepx-ml-engine"
+version = "0.0.1"
+description = "DataPrepX v2 ML engine: pipeline core (gates, lineage, imputation, RL, MAML, HPO, stacking) and Celery tasks."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "httpx>=0.27",
+    "ruff>=0.4",
+    "black>=24.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.setuptools]
+packages = ["app"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

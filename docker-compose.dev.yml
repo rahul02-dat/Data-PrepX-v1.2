@@ -1,0 +1,48 @@
+# Dev-only overrides: hot reload and exposed debug ports.
+#
+# CLAUDE.md §8 is explicit that prod-relevant config (gate thresholds, RL
+# hyperparameters) must never diverge between dev and prod compose files --
+# those live in versioned YAML config, not here. This file only changes how
+# code is mounted/reloaded and which extra ports are exposed for debugging.
+#
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  gateway-go:
+    build:
+      context: ./services/gateway-go
+      target: build
+    volumes:
+      - ./services/gateway-go:/src
+    working_dir: /src
+    command: ["go", "run", "./cmd/gateway"]
+
+  ml-engine-py:
+    volumes:
+      - ./services/ml-engine-py/app:/app/app
+    command:
+      [
+        "uvicorn",
+        "app.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--reload",
+      ]
+
+  agent-orchestrator:
+    volumes:
+      - ./services/agent-orchestrator/app.py:/app/app.py
+    command:
+      ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]
+
+  frontend-react:
+    build:
+      context: ./services/frontend-react
+    volumes:
+      - ./services/frontend-react/src:/app/src
+      - ./services/frontend-react/index.html:/app/index.html
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+    ports:
+      - "5173:5173"

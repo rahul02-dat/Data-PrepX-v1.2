@@ -1,0 +1,25 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Node / frontend
+node_modules/
+dist/
+services/frontend-react/.vite/
+
+# Go
+services/gateway-go/gateway
+/out/
+
+# Docker / local state
+*.log
+
+# OS
+.DS_Store
+
+# Internal working context, not committed
+CLAUDE.md
+docs/
