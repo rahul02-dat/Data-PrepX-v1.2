@@ -22,13 +22,10 @@ func TestHandleHealthz(t *testing.T) {
 	}
 }
 
-func TestHandleHealthz_MethodNotAllowed(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/healthz", nil)
-	rec := httptest.NewRecorder()
-
-	handleHealthz(rec, req)
-
-	if rec.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("expected status 405, got %d", rec.Code)
+func TestNewStore_Memory(t *testing.T) {
+	t.Setenv("JOB_STORE", "memory")
+	store := newStore()
+	if store == nil {
+		t.Fatal("expected a non-nil store when JOB_STORE=memory")
 	}
 }

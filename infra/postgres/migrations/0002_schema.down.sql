@@ -1,0 +1,8 @@
+DROP TABLE IF EXISTS audit_log;
+DROP TABLE IF EXISTS artifacts;
+DROP TABLE IF EXISTS metrics;
+DROP TABLE IF EXISTS hyperparameters;
+DROP TABLE IF EXISTS transformations;
+DROP TABLE IF EXISTS pipeline_steps;
+DROP TABLE IF EXISTS runs;
+DROP TABLE IF EXISTS datasets;

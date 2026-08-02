@@ -9,6 +9,11 @@ summarizer.
 ## Status
 
 Phase 0 (foundations & monorepo scaffold) — complete.
+Phase 1 (data contracts & job model) — complete: shared JSON Schema
+contract (`contracts/job.schema.json`), full Postgres lineage schema
+(`infra/postgres/migrations/0002_schema.*.sql`), and gateway-go's job
+submit/poll/WebSocket-stream implementation
+(`services/gateway-go/internal/jobs`, `internal/ws`).
 
 ## Local development
 
@@ -33,10 +38,11 @@ services/
 ├── ml-engine-py/        Python/FastAPI: pipeline core + Celery tasks
 ├── agent-orchestrator/  Python/LangGraph: bounded summarizer, Ollama client
 └── frontend-react/      React/TS SPA
+contracts/               Shared JSON Schema (job model) used across services
 infra/                   Postgres migrations, Redis config
 tests/
-├── integration/
-└── research/             reproducibility + benchmark harness
+├── integration/         cross-service contract validation
+└── research/            reproducibility + benchmark harness
 ```
 
 This is a from-scratch build. No module here is derived from or should be

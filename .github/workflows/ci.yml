@@ -90,6 +90,65 @@ jobs:
       - name: Test
         run: npx vitest run
 
+  contracts:
+    name: job contract validation
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tests/integration
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: pytest
+        run: pytest -v
+
+  migrations:
+    name: apply migrations against real Postgres
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: dataprepx
+          POSTGRES_PASSWORD: dataprepx
+          POSTGRES_DB: dataprepx
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dataprepx"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run migrate up
+        run: |
+          docker run --rm --network=host \
+            -v ${{ github.workspace }}/infra/postgres/migrations:/migrations \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database=postgres://dataprepx:dataprepx@localhost:5432/dataprepx?sslmode=disable \
+            up
+      - name: Verify expected tables exist
+        run: |
+          docker run --rm --network=host postgres:16-alpine \
+            psql postgres://dataprepx:dataprepx@localhost:5432/dataprepx -c '\dt' | tee /tmp/tables.txt
+          for t in datasets runs pipeline_steps transformations hyperparameters metrics artifacts audit_log; do
+            grep -q "$t" /tmp/tables.txt || (echo "missing table: $t" && exit 1)
+          done
+      - name: Run migrate down and confirm clean reversal
+        run: |
+          docker run --rm --network=host \
+            -v ${{ github.workspace }}/infra/postgres/migrations:/migrations \
+            migrate/migrate:v4.17.1 \
+            -path=/migrations \
+            -database=postgres://dataprepx:dataprepx@localhost:5432/dataprepx?sslmode=disable \
+            down -all
+
   compose-config:
     name: docker compose config validation
     runs-on: ubuntu-latest

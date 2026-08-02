@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dataprepx.dev/contracts/job.schema.json",
+  "title": "DataPrepX Job",
+  "description": "Canonical job/run contract shared by gateway-go, ml-engine-py, and agent-orchestrator. This file is the single source of truth for the job wire format (planner Phase 1) -- do not fork or duplicate this shape per service.",
+  "$defs": {
+    "jobStatus": {
+      "type": "string",
+      "description": "Mirrors the Celery task-graph states described in CLAUDE.md \u00a75.7. Phase 1's stub worker only ever produces queued -> running -> done|failed; gate-check and optimizing are reserved for Phase 2+ once real pipeline stages exist.",
+      "enum": [
+        "queued",
+        "running",
+        "gate-check",
+        "optimizing",
+        "done",
+        "failed"
+      ]
+    },
+    "jobSubmitRequest": {
+      "type": "object",
+      "description": "Body of POST /v1/jobs. Phase 1 only supports a synthetic no-op job (dataset_id is optional/null), so the RL/MAML/Optuna config fields are not yet part of this contract -- they land with their respective phases.",
+      "properties": {
+        "dataset_id": {
+          "type": ["string", "null"],
+          "format": "uuid",
+          "description": "References datasets.id. Null for a Phase 1 synthetic no-op job."
+        },
+        "config": {
+          "type": "object",
+          "description": "Opaque job configuration, hashed into runs.config_hash. Left schema-free at Phase 1; will gain a proper sub-schema as pipeline config surfaces are defined in later phases.",
+          "default": {}
+        }
+      },
+      "additionalProperties": false
+    },
+    "job": {
+      "type": "object",
+      "description": "Representation returned by POST /v1/jobs and GET /v1/jobs/{id}, and the payload streamed over the /v1/jobs/{id}/ws WebSocket on every status transition.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "dataset_id": {
+          "type": ["string", "null"],
+          "format": "uuid"
+        },
+        "status": {
+          "$ref": "#/$defs/jobStatus"
+        },
+        "config_hash": {
+          "type": "string",
+          "description": "sha256 of the submitted config, per lineage.py's content-addressing scheme (CLAUDE.md \u00a75.3)."
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "config_hash",
+        "created_at",
+        "updated_at"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
