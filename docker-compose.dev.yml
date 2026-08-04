@@ -1,12 +1,3 @@
-# Dev-only overrides: hot reload and exposed debug ports.
-#
-# CLAUDE.md §8 is explicit that prod-relevant config (gate thresholds, RL
-# hyperparameters) must never diverge between dev and prod compose files --
-# those live in versioned YAML config, not here. This file only changes how
-# code is mounted/reloaded and which extra ports are exposed for debugging.
-#
-# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
-
 services:
   gateway-go:
     build:

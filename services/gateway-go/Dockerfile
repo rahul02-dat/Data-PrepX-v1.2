@@ -1,7 +1,4 @@
 FROM golang:1.22-alpine AS build
-# Note: docker-compose.dev.yml targets this "build" stage directly (has
-# the Go toolchain) instead of the final runtime stage below, which only
-# contains the compiled binary and cannot run `go run`.
 WORKDIR /src
 COPY go.mod ./
 COPY . .
