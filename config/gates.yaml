@@ -1,0 +1,40 @@
+# Validation gate configuration (CLAUDE.md §5.3, §8: "everything the RL agent
+# or gates use should be tunable and itself versioned"). This file is loaded
+# by app/pipeline/config.py and its content is folded into config_hash, so
+# any change here changes the config_hash of subsequent runs -- that is
+# intentional, not a bug to work around.
+#
+# Do not diverge gate thresholds between dev and prod by editing this file
+# per-environment without an ADR (CLAUDE.md §8). Use GATE_CONFIG_PATH to
+# point at a different file entirely if environments genuinely need
+# different thresholds, and document why.
+
+max_null_rate_gate:
+  enabled: true
+  # Fraction of nulls (0-1) above which a column, or the whole dataset if
+  # per_column is false, fails the gate.
+  threshold: 0.4
+  per_column: true
+
+schema_conformance_gate:
+  enabled: true
+  # Whether extra columns not in the dataset's registered schema fail the
+  # gate, or are ignored (permissive drift in column count).
+  allow_extra_columns: false
+  # Whether a dtype mismatch (e.g. a column that was int64 is now float64)
+  # fails the gate.
+  strict_dtypes: true
+
+drift_gate:
+  enabled: true
+  # See docs/adr/0002-drift-reference-distribution.md: this project requires
+  # an explicit, user-supplied reference dataset per dataset
+  # (datasets.reference_dataset_id). There is no first-run-baseline fallback.
+  method: psi   # psi | ks
+  # PSI thresholds follow the common industry convention:
+  # < 0.1 no significant shift, 0.1-0.25 moderate, > 0.25 significant.
+  psi_threshold: 0.25
+  # Used when method is ks: p-value below this is treated as drift.
+  ks_p_value_threshold: 0.05
+  # Number of bins for PSI's histogram-based computation.
+  psi_bins: 10
