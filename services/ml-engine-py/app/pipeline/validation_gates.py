@@ -1,12 +1,3 @@
-"""Validation gates (CLAUDE.md §5.3): fail-closed, pluggable, structured rejection
-reasons. A rejected dataset never reaches the estimator.
-
-Each gate implements evaluate() and returns a GateResult. run_gates() runs every
-enabled gate (does not stop at the first failure -- a caller wants to see every
-violation at once, not fix them one at a time) and aggregates into a GateChainResult
-that is unambiguously pass/fail.
-"""
-
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -33,6 +24,7 @@ class GateChainResult:
     passed: bool
     results: list[GateResult]
 
+    # Return failed gate evaluation results
     @property
     def failures(self) -> list[GateResult]:
         return [r for r in self.results if not r.passed]
@@ -41,6 +33,7 @@ class GateChainResult:
 class Gate(ABC):
     name: str
 
+    # Evaluate gate criteria against dataset
     @abstractmethod
     def evaluate(
         self,
@@ -58,6 +51,7 @@ class MaxNullRateGate(Gate):
     def __init__(self, config: MaxNullRateGateConfig):
         self._config = config
 
+    # Evaluate null rate thresholds against dataset
     def evaluate(
         self,
         df: pd.DataFrame,
@@ -103,6 +97,7 @@ class SchemaConformanceGate(Gate):
     def __init__(self, config: SchemaConformanceGateConfig):
         self._config = config
 
+    # Evaluate schema conformance against expected schema
     def evaluate(
         self,
         df: pd.DataFrame,
@@ -159,6 +154,7 @@ class DriftGate(Gate):
     def __init__(self, config: DriftGateConfig):
         self._config = config
 
+    # Evaluate distribution drift against reference dataset
     def evaluate(
         self,
         df: pd.DataFrame,
@@ -166,9 +162,6 @@ class DriftGate(Gate):
         expected_schema: dict[str, str] | None = None,
         reference_df: pd.DataFrame | None = None,
     ) -> GateResult:
-        # docs/adr/0002-drift-reference-distribution.md: reference distribution is
-        # always user-supplied. No reference configured means the gate fails
-        # closed, not "skip" or "assume no drift".
         if reference_df is None or len(reference_df) == 0:
             return GateResult(
                 self.name,
@@ -205,7 +198,7 @@ class DriftGate(Gate):
                 per_column[col] = {"psi": score}
                 if score > self._config.psi_threshold:
                     drifted_columns.append(col)
-            else:  # ks
+            else:
                 _, p_value = stats.ks_2samp(reference, current)
                 per_column[col] = {"ks_p_value": float(p_value)}
                 if p_value < self._config.ks_p_value_threshold:
@@ -221,22 +214,14 @@ class DriftGate(Gate):
         return GateResult(self.name, passed=True, details={"per_column": per_column})
 
 
+# Calculate Population Stability Index metric
 def _population_stability_index(
     reference: np.ndarray, current: np.ndarray, *, bins: int = 10
 ) -> float:
-    """PSI = sum((current_pct - ref_pct) * ln(current_pct / ref_pct)) over shared bins.
-
-    Bin edges are derived from the reference distribution's quantiles, per the
-    common convention (compares current against reference's own shape, not an
-    arbitrary fixed range). Empty bins are floored to a small epsilon to keep the
-    log term finite -- an empty bin is still informative (mass moved away from it),
-    not a reason to divide by zero.
-    """
     epsilon = 1e-6
     quantiles = np.linspace(0, 1, bins + 1)
     edges = np.unique(np.quantile(reference, quantiles))
     if len(edges) < 2:
-        # Reference has (near-)zero variance; can't build meaningful bins.
         return 0.0 if np.allclose(reference.mean(), current.mean()) else float("inf")
 
     ref_counts, _ = np.histogram(reference, bins=edges)
@@ -248,8 +233,8 @@ def _population_stability_index(
     return float(np.sum((cur_pct - ref_pct) * np.log(cur_pct / ref_pct)))
 
 
+# Construct configured validation gate list
 def build_gates(pipeline_config) -> list[Gate]:
-    """Construct the enabled gate list from a PipelineConfig, in a fixed order."""
     gates: list[Gate] = []
     if pipeline_config.max_null_rate_gate.enabled:
         gates.append(MaxNullRateGate(pipeline_config.max_null_rate_gate))
@@ -260,6 +245,7 @@ def build_gates(pipeline_config) -> list[Gate]:
     return gates
 
 
+# Execute gate chain against dataset
 def run_gates(
     gates: list[Gate],
     df: pd.DataFrame,

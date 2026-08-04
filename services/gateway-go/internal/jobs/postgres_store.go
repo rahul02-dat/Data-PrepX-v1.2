@@ -9,17 +9,6 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// postgresStore persists jobs to the runs table (CLAUDE.md §6) and fans out
-// status transitions to in-process subscribers.
-//
-// Verification note: this file's SQL was hand-verified against a real
-// Postgres 16 instance during development (schema create, insert, status
-// update, CHECK-constraint rejection of an invalid status, and both down
-// migrations reversing cleanly) but is not covered by an automated
-// integration test in this repository yet -- doing so needs a Postgres
-// instance in CI (docker-compose based), which this development sandbox
-// cannot boot. The in-memory store (memory_store.go) is what the automated
-// test suite exercises.
 type postgresStore struct {
 	db *sql.DB
 
@@ -27,8 +16,7 @@ type postgresStore struct {
 	subscribers map[string][]chan Job
 }
 
-// NewPostgresStore opens a connection pool against dataSourceName (a
-// postgres:// URL) and returns a Store backed by the runs table.
+// Construct Postgres-backed job store
 func NewPostgresStore(dataSourceName string) (Store, error) {
 	db, err := sql.Open("postgres", dataSourceName)
 	if err != nil {
@@ -40,6 +28,7 @@ func NewPostgresStore(dataSourceName string) (Store, error) {
 	}, nil
 }
 
+// Persist new job in Postgres
 func (s *postgresStore) CreateJob(ctx context.Context, req SubmitRequest) (Job, error) {
 	hash, err := hashConfig(req.Config)
 	if err != nil {
@@ -51,13 +40,11 @@ func (s *postgresStore) CreateJob(ctx context.Context, req SubmitRequest) (Job, 
 		VALUES ($1, $2, $3, 'queued')
 		RETURNING id, dataset_id, status, config_hash, created_at, updated_at
 	`
-	// git_sha is not yet threaded through from the build (Phase 1 scope);
-	// "unknown" is an explicit placeholder, not a silent default, per
-	// CLAUDE.md's stance on avoiding silent defaults for lineage fields.
 	row := s.db.QueryRowContext(ctx, q, req.DatasetID, "unknown", hash)
 	return scanJob(row)
 }
 
+// Retrieve job by ID from Postgres
 func (s *postgresStore) GetJob(ctx context.Context, id string) (Job, error) {
 	const q = `
 		SELECT id, dataset_id, status, config_hash, created_at, updated_at
@@ -71,6 +58,7 @@ func (s *postgresStore) GetJob(ctx context.Context, id string) (Job, error) {
 	return job, err
 }
 
+// Update job status in Postgres and notify subscribers
 func (s *postgresStore) UpdateStatus(ctx context.Context, id string, status Status) (Job, error) {
 	const q = `
 		UPDATE runs SET status = $2, updated_at = now()
@@ -100,6 +88,7 @@ func (s *postgresStore) UpdateStatus(ctx context.Context, id string, status Stat
 	return job, nil
 }
 
+// Register subscriber for job status transitions
 func (s *postgresStore) Subscribe(id string) (<-chan Job, func()) {
 	ch := make(chan Job, 8)
 
@@ -123,6 +112,7 @@ func (s *postgresStore) Subscribe(id string) (<-chan Job, func()) {
 	return ch, unsubscribe
 }
 
+// Scan SQL database row into Job struct
 func scanJob(row *sql.Row) (Job, error) {
 	var job Job
 	var datasetID sql.NullString

@@ -31,5 +31,5 @@ def test_partial_yaml_falls_back_to_dataclass_defaults(tmp_path):
     path.write_text("max_null_rate_gate:\n  threshold: 0.9\n")
     config = load_pipeline_config(path)
     assert config.max_null_rate_gate.threshold == 0.9
-    assert config.max_null_rate_gate.per_column is True  # dataclass default
-    assert config.drift_gate.psi_threshold == 0.25  # dataclass default
+    assert config.max_null_rate_gate.per_column is True
+    assert config.drift_gate.psi_threshold == 0.25

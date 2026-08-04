@@ -1,17 +1,3 @@
-"""Integration test for lineage.py against a real Postgres instance.
-
-Excluded from the default `pytest` run (see pyproject.toml's `addopts = "-m 'not
-db'"`) because it needs DATABASE_URL pointing at a migrated Postgres 16+ database
-with the pgcrypto extension enabled. This is what closes the gap flagged when
-test_lineage.py was written mocked-only: run this in CI (see
-.github/workflows/ci.yml's `ml-engine-py-db-integration` job) or locally with
-
-    docker compose up -d postgres
-    make migrate
-    DATABASE_URL=postgres://dataprepx:dataprepx@localhost:5432/dataprepx?sslmode=disable \
-        .venv/bin/pytest -v -m db
-"""
-
 from __future__ import annotations
 
 import os

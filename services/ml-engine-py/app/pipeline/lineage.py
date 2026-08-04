@@ -1,18 +1,3 @@
-"""Immutable lineage recording (CLAUDE.md §5.3).
-
-Every transformation is content-addressed: hash(input) + hash(transform code) +
-hash(hyperparameters) + git SHA. This module writes that record to Postgres and
-provides the read-path needed to replay a run.
-
-Scope note: Phase 2 has no transformations to execute yet (imputation/outliers land
-in Phase 3, RL in Phase 5, etc.), so `replay_run` returns the full recorded DAG --
-everything needed to re-execute it -- rather than actually re-executing anything.
-`verify_output_hash` is the primitive later phases call once real transform
-functions exist: it takes a freshly recomputed hash and checks it against what was
-recorded, which is the actual "replay reproduces identical output hashes" check
-required by the Phase 2 acceptance criterion.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -48,16 +33,10 @@ class ReplayRecord:
 
 
 class LineageRecorder:
-    """Wraps a psycopg connection with the Phase 2 lineage operations.
-
-    Callers own the connection's lifecycle (open/close/commit); this class does not
-    manage transactions itself beyond the single statement it's executing, so it
-    composes with a caller that wants to wrap a whole pipeline run in one transaction.
-    """
-
     def __init__(self, conn: psycopg.Connection):
         self._conn = conn
 
+    # Register dataset by content hash
     def register_dataset(
         self,
         df: pd.DataFrame,
@@ -65,7 +44,6 @@ class LineageRecorder:
         *,
         reference_dataset_id: str | None = None,
     ) -> tuple[str, str]:
-        """Register a dataset by content hash, idempotently. Returns (dataset_id, content_hash)."""
         content_hash = hash_dataframe(df)
         with self._conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
@@ -83,6 +61,7 @@ class LineageRecorder:
                 row = cur.fetchone()
             return str(row["id"]), content_hash
 
+    # Idempotent run creation keyed on run_key
     def get_or_create_run(
         self,
         *,
@@ -91,8 +70,6 @@ class LineageRecorder:
         config: PipelineConfig,
         git_sha: str,
     ) -> tuple[str, str, bool]:
-        """Idempotent run creation keyed on run_key (see ADR 0003). Returns
-        (run_id, run_key, created)."""
         config_dict = config.as_dict()
         config_hash_value = hash_config(config_dict)
         run_key = compute_run_key(dataset_content_hash, config_hash_value, git_sha)
@@ -121,8 +98,8 @@ class LineageRecorder:
                 )
             return str(row["id"]), run_key, False
 
+    # Persist gate results and audit log
     def record_gate_chain(self, run_id: str, gate_chain: GateChainResult) -> None:
-        """Persist every gate's structured verdict, plus one audit_log summary entry."""
         with self._conn.cursor() as cur:
             for result in gate_chain.results:
                 cur.execute(
@@ -154,6 +131,7 @@ class LineageRecorder:
                 ("gate-check" if gate_chain.passed else "failed", run_id),
             )
 
+    # Record pipeline DAG step
     def record_pipeline_step(
         self,
         run_id: str,
@@ -166,7 +144,6 @@ class LineageRecorder:
         transform_code_hash: str,
         description: str | None = None,
     ) -> str:
-        """Record one DAG step plus its transformation record. Returns the step id."""
         with self._conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 """
@@ -194,9 +171,8 @@ class LineageRecorder:
             )
             return step_id
 
+    # Fetch recorded run execution details
     def replay_run(self, run_id: str) -> ReplayRecord:
-        """Fetch everything recorded about a run, in step order, sufficient to
-        re-execute the same hashed DAG against the same input hash."""
         with self._conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 "SELECT id, dataset_id, git_sha, config_hash, run_key FROM runs WHERE id = %s",
@@ -237,11 +213,8 @@ class LineageRecorder:
         )
 
 
+# Verify step reproducibility against output hash
 def verify_output_hash(recorded_output_hash: str | None, recomputed_hash: str) -> bool:
-    """The actual reproducibility check: does re-executing a step produce the same
-    output hash that was recorded the first time. A None recorded hash always fails
-    verification -- there is nothing to compare against, which is a data problem to
-    surface, not a pass-by-default."""
     if recorded_output_hash is None:
         return False
     return recorded_output_hash == recomputed_hash

@@ -1,14 +1,3 @@
-"""Unit tests for lineage.py against a mocked psycopg connection.
-
-No live Postgres is available in this environment, so these tests verify the SQL
-call shape and control flow (idempotency branching, structured-reason recording)
-via mocks rather than a real database round-trip. postgres_store.go's own tests
-took the analogous approach for Phase 1 (see its file header) for the same reason.
-Before this ships, it should also be exercised against a real Postgres instance
-(docker compose up + make migrate) -- flagging that as a follow-up verification
-step this sandbox cannot perform.
-"""
-
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -48,8 +37,6 @@ def test_register_dataset_inserts_when_new():
 def test_register_dataset_falls_back_to_select_on_conflict():
     conn = MagicMock()
     cursor = MagicMock()
-    # First execute (INSERT ... RETURNING) yields no row (conflict); second
-    # execute (SELECT) yields the existing row.
     cursor.fetchone.side_effect = [None, {"id": "existing-dataset-id"}]
     conn.cursor.return_value.__enter__.return_value = cursor
     recorder = LineageRecorder(conn)
@@ -98,7 +85,7 @@ def test_get_or_create_run_is_idempotent_on_identical_inputs():
 def test_get_or_create_run_raises_on_impossible_conflict_state():
     conn = MagicMock()
     cursor = MagicMock()
-    cursor.fetchone.side_effect = [None, None]  # insert conflicted, but lookup also empty
+    cursor.fetchone.side_effect = [None, None]
     conn.cursor.return_value.__enter__.return_value = cursor
     recorder = LineageRecorder(conn)
 
@@ -129,8 +116,7 @@ def test_record_gate_chain_writes_one_row_per_gate_plus_audit_and_status_update(
     assert len(gate_inserts) == 2
     assert len(audit_inserts) == 1
     assert len(status_updates) == 1
-    # Rejected chain -> status must be 'failed', not silently left as queued/running.
-    assert status_updates[0]  # sanity: statement exists
+    assert status_updates[0]
     last_update_args = [
         call.args
         for call in cursor.execute.call_args_list
@@ -216,9 +202,6 @@ def test_replay_run_returns_run_and_ordered_steps():
     assert record.run_key == "sha256:key"
     assert len(record.steps) == 1
     assert record.steps[0].step_type == "mice_imputation"
-
-
-# --- verify_output_hash ---------------------------------------------------------
 
 
 def test_verify_output_hash_matches():

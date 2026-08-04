@@ -1,13 +1,3 @@
-"""Central, versioned gate configuration (CLAUDE.md §8: "central YAML config, no
-hardcoded thresholds -- everything the RL agent or gates use should be tunable and
-itself versioned").
-
-Loaded from config/gates.yaml at the repo root by default; override with the
-GATE_CONFIG_PATH env var (used by tests and by non-default deployments -- CLAUDE.md
-§8 also says dev/prod must not silently diverge on gate thresholds, so a different
-path should come with an ADR, not just an env var flip in compose files).
-"""
-
 from __future__ import annotations
 
 import os
@@ -42,6 +32,7 @@ class DriftGateConfig:
     ks_p_value_threshold: float = 0.05
     psi_bins: int = 10
 
+    # Validate configuration parameters
     def __post_init__(self) -> None:
         if self.method not in ("psi", "ks"):
             raise ValueError(f"drift_gate.method must be 'psi' or 'ks', got {self.method!r}")
@@ -55,22 +46,19 @@ class PipelineConfig:
     )
     drift_gate: DriftGateConfig = field(default_factory=DriftGateConfig)
 
+    # Convert dataclass configuration to dictionary
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
+# Resolve path to gate configuration file
 def config_path() -> Path:
     override = os.environ.get("GATE_CONFIG_PATH")
     return Path(override) if override else _DEFAULT_CONFIG_PATH
 
 
+# Load and validate pipeline configuration
 def load_pipeline_config(path: Path | None = None) -> PipelineConfig:
-    """Load and validate config/gates.yaml (or GATE_CONFIG_PATH) into a PipelineConfig.
-
-    Fails loudly (FileNotFoundError / dataclass ValueError) rather than silently
-    falling back to defaults, per CLAUDE.md's "no silent defaults for lineage-
-    relevant fields" stance applied to gate config.
-    """
     resolved = path or config_path()
     if not resolved.exists():
         raise FileNotFoundError(

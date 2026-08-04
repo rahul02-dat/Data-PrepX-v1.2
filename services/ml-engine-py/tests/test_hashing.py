@@ -24,9 +24,6 @@ def test_hash_config_differs_for_different_values():
 
 
 def test_hash_config_matches_known_go_style_vector():
-    # Mirrors gateway-go's hashConfig for an ascii-only config: sorted [k, v, k, v]
-    # list, compact JSON (no spaces), sha256, "sha256:" prefix. Verified independent
-    # of the implementation by hand-computing the expected digest here.
     import hashlib
     import json
 

@@ -1,7 +1,3 @@
-// Package ws streams job status transitions to WebSocket clients. It is
-// deliberately thin: it subscribes to a jobs.Store and forwards whatever
-// that store publishes. The Go gateway must never block on compute
-// (CLAUDE.md §5.7) -- this handler only relays state, it does not drive it.
 package ws
 
 import (
@@ -15,34 +11,22 @@ import (
 )
 
 var upgrader = websocket.Upgrader{
-	// Phase 1 has no browser-origin restriction yet; the frontend and
-	// gateway are same-origin in dev via the Vite proxy / direct port.
-	// Revisit this once auth (Phase 8+ hardening, CLAUDE.md §11) lands.
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-// Handler upgrades GET /v1/jobs/{id}/ws to a WebSocket connection and
-// streams every subsequent status transition for that job as a JSON-encoded
-// jobs.Job, until the job reaches a terminal state (done/failed) or the
-// client disconnects.
 type Handler struct {
 	store jobs.Store
 }
 
-// NewHandler returns a Handler backed by store. Register it against a
-// Go 1.22+ ServeMux pattern:
-//
-//	mux.HandleFunc("GET /v1/jobs/{id}/ws", h.Stream)
+// Construct WebSocket status stream handler
 func NewHandler(store jobs.Store) *Handler {
 	return &Handler{store: store}
 }
 
-// Stream handles GET /v1/jobs/{id}/ws.
+// Stream job status transitions over WebSocket
 func (h *Handler) Stream(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	// Send the current state immediately so a client connecting after the
-	// job already progressed isn't stuck waiting for the next transition.
 	current, err := h.store.GetJob(r.Context(), id)
 	if err != nil {
 		http.Error(w, "job not found", http.StatusNotFound)
@@ -76,6 +60,7 @@ func (h *Handler) Stream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// Write JSON-encoded job snapshot to WebSocket
 func writeJob(conn *websocket.Conn, job jobs.Job) error {
 	b, err := json.Marshal(job)
 	if err != nil {

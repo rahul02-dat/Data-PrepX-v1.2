@@ -1,13 +1,3 @@
--- Phase 1: canonical job/run data model. See CLAUDE.md §6 for the schema
--- rationale and docs/adr for why golang-migrate + plain SQL was chosen.
---
--- run_id is derivable purely from (dataset content_hash, config_hash,
--- git_sha) per CLAUDE.md §6 -- that determinism is what makes lineage
--- replay (§5.3) exact rather than best-effort. We do not enforce that
--- derivation in SQL yet (it is computed application-side in lineage.py,
--- Phase 2); Phase 1 only needs the tables to exist and accept it as a
--- unique value.
-
 CREATE TABLE datasets (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     content_hash  TEXT NOT NULL UNIQUE,

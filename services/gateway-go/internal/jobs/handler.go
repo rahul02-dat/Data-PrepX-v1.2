@@ -6,34 +6,22 @@ import (
 	"net/http"
 )
 
-// Handler serves the job submission and polling REST surface. WebSocket
-// streaming lives in the sibling internal/ws package, wired up in main.go
-// on its own route since it needs both a Store and a running worker to
-// drive transitions.
 type Handler struct {
 	store     Store
 	onCreated func(Job)
 }
 
-// NewHandler returns a Handler backed by store. Register its methods
-// directly against a Go 1.22+ ServeMux pattern (see main.go):
-//
-//	mux.HandleFunc("POST /v1/jobs", h.Submit)
-//	mux.HandleFunc("GET /v1/jobs/{id}", h.Poll)
+// Construct new job HTTP handler
 func NewHandler(store Store) *Handler {
 	return &Handler{store: store}
 }
 
-// OnCreated registers a callback invoked synchronously, after the response
-// has been written, with every job this Handler creates. main.go uses this
-// to kick off the fake worker (RunFakeWorker) without Submit needing to
-// know that worker exists.
+// Register job creation callback
 func (h *Handler) OnCreated(fn func(Job)) {
 	h.onCreated = fn
 }
 
-// Submit handles POST /v1/jobs: creates a new job and returns it as JSON
-// with 201 Created.
+// Handle POST /v1/jobs endpoint
 func (h *Handler) Submit(w http.ResponseWriter, r *http.Request) {
 	var req SubmitRequest
 	if r.ContentLength != 0 {
@@ -56,7 +44,7 @@ func (h *Handler) Submit(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Poll handles GET /v1/jobs/{id}: returns the current job state as JSON.
+// Handle GET /v1/jobs/{id} endpoint
 func (h *Handler) Poll(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
@@ -73,6 +61,7 @@ func (h *Handler) Poll(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, job)
 }
 
+// Helper to write JSON response
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

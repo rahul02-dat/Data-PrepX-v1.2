@@ -1,12 +1,3 @@
-"""Validates real job/run payload shapes against contracts/job.schema.json.
-
-This is the cross-service contract check referenced in planner Phase 1:
-gateway-go, ml-engine-py, and agent-orchestrator must speak the same job
-shape. These fixtures mirror exactly what services/gateway-go/internal/jobs
-actually produces (see handler_test.go / memory_store_test.go there) --
-if either side drifts, this test or that one should catch it.
-"""
-
 import json
 from pathlib import Path
 

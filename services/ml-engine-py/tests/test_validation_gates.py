@@ -11,8 +11,6 @@ from app.pipeline.validation_gates import (
     run_gates,
 )
 
-# --- MaxNullRateGate ---------------------------------------------------------
-
 
 def test_max_null_rate_gate_passes_clean_data():
     df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
@@ -34,16 +32,13 @@ def test_max_null_rate_gate_overall_mode():
     df = pd.DataFrame({"a": [1, None, 3, 4], "b": [1, 2, 3, 4]})
     gate = MaxNullRateGate(MaxNullRateGateConfig(threshold=0.5, per_column=False))
     result = gate.evaluate(df)
-    assert result.passed is True  # 1/8 = 0.125 overall
+    assert result.passed is True
 
 
 def test_max_null_rate_gate_rejects_empty_dataset():
     gate = MaxNullRateGate(MaxNullRateGateConfig())
     result = gate.evaluate(pd.DataFrame())
     assert result.passed is False
-
-
-# --- SchemaConformanceGate ----------------------------------------------------
 
 
 def test_schema_conformance_passes_matching_schema():
@@ -81,7 +76,7 @@ def test_schema_conformance_allows_extra_column_when_configured():
 
 
 def test_schema_conformance_fails_on_dtype_mismatch():
-    df = pd.DataFrame({"a": [1.0, 2.0]})  # float64
+    df = pd.DataFrame({"a": [1.0, 2.0]})
     expected = {"a": "int64"}
     gate = SchemaConformanceGate(SchemaConformanceGateConfig(strict_dtypes=True))
     result = gate.evaluate(df, expected_schema=expected)
@@ -94,9 +89,6 @@ def test_schema_conformance_fails_closed_without_expected_schema():
     gate = SchemaConformanceGate(SchemaConformanceGateConfig())
     result = gate.evaluate(df)
     assert result.passed is False
-
-
-# --- DriftGate -----------------------------------------------------------------
 
 
 def test_drift_gate_fails_closed_with_no_reference():
@@ -143,14 +135,11 @@ def test_drift_gate_no_shared_numeric_columns():
     assert result.passed is False
 
 
-# --- run_gates / build_gates orchestration -------------------------------------
-
-
 def test_run_gates_aggregates_all_results_even_on_first_failure():
     df = pd.DataFrame({"a": [None, None, None, 1]})
     null_gate = MaxNullRateGate(MaxNullRateGateConfig(threshold=0.1, per_column=True))
     schema_gate = SchemaConformanceGate(SchemaConformanceGateConfig())
-    chain = run_gates([null_gate, schema_gate], df)  # no expected_schema -> schema also fails
+    chain = run_gates([null_gate, schema_gate], df)
     assert chain.passed is False
     assert len(chain.results) == 2
     assert len(chain.failures) == 2

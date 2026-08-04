@@ -14,9 +14,6 @@ import (
 	"dataprepx/gateway-go/internal/jobs"
 )
 
-// TestEndToEnd_SubmitAndStreamStatus mirrors Phase 1's acceptance criterion:
-// a synthetic no-op job can be submitted via REST, recorded in the store,
-// and its status streamed to a WebSocket client end to end.
 func TestEndToEnd_SubmitAndStreamStatus(t *testing.T) {
 	store := jobs.NewMemoryStore()
 
@@ -36,7 +33,6 @@ func TestEndToEnd_SubmitAndStreamStatus(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	// 1. Submit the job over REST.
 	resp, err := http.Post(server.URL+"/v1/jobs", "application/json", strings.NewReader(`{}`))
 	if err != nil {
 		t.Fatalf("submit request failed: %v", err)
@@ -54,7 +50,6 @@ func TestEndToEnd_SubmitAndStreamStatus(t *testing.T) {
 		t.Fatalf("expected initial status queued, got %s", created.Status)
 	}
 
-	// 2. Connect to the WebSocket stream for that job.
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/v1/jobs/" + created.ID + "/ws"
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
@@ -62,8 +57,6 @@ func TestEndToEnd_SubmitAndStreamStatus(t *testing.T) {
 	}
 	defer conn.Close()
 
-	// 3. Read the full transition sequence: queued (current state on
-	// connect) -> running -> done.
 	var statuses []jobs.Status
 	deadline := time.Now().Add(5 * time.Second)
 	for {
@@ -92,7 +85,6 @@ func TestEndToEnd_SubmitAndStreamStatus(t *testing.T) {
 		}
 	}
 
-	// 4. Poll confirms the same final state via REST.
 	pollResp, err := http.Get(server.URL + "/v1/jobs/" + created.ID)
 	if err != nil {
 		t.Fatalf("poll request failed: %v", err)

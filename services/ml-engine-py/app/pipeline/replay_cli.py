@@ -1,11 +1,3 @@
-"""CLI: replay a run_id and print its recorded lineage DAG.
-
-    python -m app.pipeline.replay_cli <run_id>
-
-Requires DATABASE_URL to be set (see docker-compose.yml). Exits non-zero if the
-run_id doesn't exist, per fail-closed conventions elsewhere in this module.
-"""
-
 from __future__ import annotations
 
 import json
@@ -15,6 +7,7 @@ from app.pipeline.db import get_connection
 from app.pipeline.lineage import LineageRecorder
 
 
+# CLI entrypoint for run replay
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
         print("usage: python -m app.pipeline.replay_cli <run_id>", file=sys.stderr)

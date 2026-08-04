@@ -7,11 +7,7 @@ import (
 	"sort"
 )
 
-// hashConfig produces a stable sha256 over a config map, independent of key
-// order. It is a Phase 1 stand-in for the full content-addressed lineage
-// hashing scheme in lineage.py (CLAUDE.md §5.3) -- that scheme also folds in
-// the input data hash, transform code hash, and git SHA, none of which exist
-// yet for a synthetic no-op job.
+// Compute stable SHA256 hash of configuration map
 func hashConfig(config map[string]any) (string, error) {
 	if config == nil {
 		config = map[string]any{}

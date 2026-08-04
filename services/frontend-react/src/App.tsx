@@ -1,11 +1,8 @@
-// Phase 0 stub. Real pages (dataset upload, live job progress, lineage
-// viewer, RL/Optuna/MAML dashboards, confidence-annotated summary) land in
-// Phase 9 per docs/01_IMPLEMENTATION_PLANNER.md. This component only proves
-// the frontend builds and can reach the gateway's /healthz endpoint.
 import { useEffect, useState } from "react";
 
 type HealthState = "checking" | "ok" | "unreachable";
 
+// Main application entry component
 export default function App() {
   const [health, setHealth] = useState<HealthState>("checking");
 
