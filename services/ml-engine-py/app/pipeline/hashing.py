@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
+from collections.abc import Callable
 from typing import Any
 
 import pandas as pd
@@ -40,3 +42,10 @@ def hash_dataframe(df: pd.DataFrame) -> str:
 def compute_run_key(dataset_content_hash: str, config_hash: str, git_sha: str) -> str:
     encoded = "|".join([dataset_content_hash, config_hash, git_sha]).encode("utf-8")
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+# Compute a transform_code_hash from a function's own source. This is what lets a lineage entry
+# distinguish "same params, different transform implementation" -- if imputation.py's logic
+# changes, this hash changes even though params_json may not, so a stale replay is detectable.
+def hash_source(fn: Callable) -> str:
+    return "sha256:" + hashlib.sha256(inspect.getsource(fn).encode("utf-8")).hexdigest()
