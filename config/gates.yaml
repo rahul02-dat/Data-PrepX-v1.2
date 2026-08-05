@@ -14,3 +14,18 @@ drift_gate:
   psi_threshold: 0.25
   ks_p_value_threshold: 0.05
   psi_bins: 10
+
+imputation:
+  enabled: true
+  method: mice
+  mice_max_iter: 25
+  mice_tol: 0.01
+  knn_n_neighbors: 5
+  categorical_strategy: most_frequent
+
+outlier_detection:
+  enabled: true
+  method: isolation_forest
+  contamination: 0.05
+  n_estimators: 100
+  lof_n_neighbors: 20
