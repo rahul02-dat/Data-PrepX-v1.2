@@ -130,7 +130,7 @@ def build_estimator(
     raise ValueError(f"unknown model family: {family!r}")
 
 
-# Default (untuned) estimator for a family, used as the Phase 4 acceptance baseline
+# Default (untuned) estimator for a family
 def default_estimator(family: ModelFamily, task: TaskType, seed: int) -> BaseEstimator:
     if family == "linear":
         params: dict[str, Any] = {}

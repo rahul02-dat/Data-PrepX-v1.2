@@ -86,12 +86,6 @@ class OutlierDetectionConfig:
 
 @dataclass(frozen=True)
 class EstimationConfig:
-    """Phase 4: Bayesian HPO (Optuna) + stacked ensembles.
-
-    One Optuna study is run per model family; the best-of-family models are then combined
-    into a stack. Every field here is versioned as part of config_hash (lineage.py), so a
-    change to n_trials/cv_folds changes run identity, per CLAUDE.md §5.5.
-    """
 
     enabled: bool = True
     n_trials: int = 30
@@ -141,7 +135,7 @@ class PipelineConfig:
         return asdict(self)
 
 
-# Resolve path to gate configuration file
+# About function: Get gate config path
 def config_path() -> Path:
     override = os.environ.get("GATE_CONFIG_PATH")
     return Path(override) if override else _DEFAULT_CONFIG_PATH

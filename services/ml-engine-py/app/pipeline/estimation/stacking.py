@@ -55,9 +55,7 @@ def build_stack(
     )
 
 
-# Run Optuna HPO per family, then cross-validate a stack of the tuned models against the
-# single best-performing tuned family (Phase 4 acceptance criterion: stack beats best single model
-# and beats the fixed-default baseline, see estimation benchmark).
+# Run Optuna HPO per family, then cross-validate a stack of the tuned models
 def run_stacking(
     X: np.ndarray,
     y: np.ndarray,
