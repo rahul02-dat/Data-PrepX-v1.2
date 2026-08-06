@@ -9,6 +9,8 @@ import yaml
 
 _DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[4] / "config" / "gates.yaml"
 
+_VALID_TREE_FAMILIES = {"xgboost", "lightgbm", "random_forest"}
+
 
 @dataclass(frozen=True)
 class MaxNullRateGateConfig:
@@ -83,6 +85,47 @@ class OutlierDetectionConfig:
 
 
 @dataclass(frozen=True)
+class EstimationConfig:
+    """Phase 4: Bayesian HPO (Optuna) + stacked ensembles.
+
+    One Optuna study is run per model family; the best-of-family models are then combined
+    into a stack. Every field here is versioned as part of config_hash (lineage.py), so a
+    change to n_trials/cv_folds changes run identity, per CLAUDE.md §5.5.
+    """
+
+    enabled: bool = True
+    n_trials: int = 30
+    cv_folds: int = 5
+    n_startup_trials: int = 5
+    n_warmup_steps: int = 5
+    # Tree-based family space, per CLAUDE.md §5.5. "random_forest" always available (sklearn);
+    # xgboost/lightgbm require the optional heavy deps declared in pyproject.toml.
+    tree_model_families: tuple[str, ...] = ("xgboost", "lightgbm", "random_forest")
+    include_linear_family: bool = True
+    stacking_cv_folds: int = 5
+
+    # Validate configuration parameters
+    def __post_init__(self) -> None:
+        for fam in self.tree_model_families:
+            if fam not in _VALID_TREE_FAMILIES:
+                raise ValueError(
+                    f"estimation.tree_model_families entries must be one of "
+                    f"{sorted(_VALID_TREE_FAMILIES)}, got {fam!r}"
+                )
+        if self.n_trials < 1:
+            raise ValueError(f"estimation.n_trials must be >= 1, got {self.n_trials}")
+        if self.cv_folds < 2:
+            raise ValueError(f"estimation.cv_folds must be >= 2, got {self.cv_folds}")
+
+    # All model families this config will search over (tree families + optional linear family)
+    def all_families(self) -> tuple[str, ...]:
+        families = tuple(self.tree_model_families)
+        if self.include_linear_family:
+            families = families + ("linear",)
+        return families
+
+
+@dataclass(frozen=True)
 class PipelineConfig:
     max_null_rate_gate: MaxNullRateGateConfig = field(default_factory=MaxNullRateGateConfig)
     schema_conformance_gate: SchemaConformanceGateConfig = field(
@@ -91,6 +134,7 @@ class PipelineConfig:
     drift_gate: DriftGateConfig = field(default_factory=DriftGateConfig)
     imputation: ImputationConfig = field(default_factory=ImputationConfig)
     outlier_detection: OutlierDetectionConfig = field(default_factory=OutlierDetectionConfig)
+    estimation: EstimationConfig = field(default_factory=EstimationConfig)
 
     # Convert dataclass configuration to dictionary
     def as_dict(self) -> dict[str, Any]:
@@ -114,6 +158,10 @@ def load_pipeline_config(path: Path | None = None) -> PipelineConfig:
     with resolved.open("r", encoding="utf-8") as f:
         raw = yaml.safe_load(f) or {}
 
+    estimation_raw = dict(raw.get("estimation", {}))
+    if "tree_model_families" in estimation_raw:
+        estimation_raw["tree_model_families"] = tuple(estimation_raw["tree_model_families"])
+
     return PipelineConfig(
         max_null_rate_gate=MaxNullRateGateConfig(**raw.get("max_null_rate_gate", {})),
         schema_conformance_gate=SchemaConformanceGateConfig(
@@ -122,4 +170,5 @@ def load_pipeline_config(path: Path | None = None) -> PipelineConfig:
         drift_gate=DriftGateConfig(**raw.get("drift_gate", {})),
         imputation=ImputationConfig(**raw.get("imputation", {})),
         outlier_detection=OutlierDetectionConfig(**raw.get("outlier_detection", {})),
+        estimation=EstimationConfig(**estimation_raw),
     )

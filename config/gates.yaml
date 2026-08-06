@@ -29,3 +29,13 @@ outlier_detection:
   contamination: 0.05
   n_estimators: 100
   lof_n_neighbors: 20
+
+estimation:
+  enabled: true
+  n_trials: 30
+  cv_folds: 5
+  n_startup_trials: 5
+  n_warmup_steps: 5
+  tree_model_families: [xgboost, lightgbm, random_forest]
+  include_linear_family: true
+  stacking_cv_folds: 5

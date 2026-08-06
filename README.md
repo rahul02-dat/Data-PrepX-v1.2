@@ -22,6 +22,37 @@ a deterministic `run_key` resolving the Phase 1/Phase 2 schema contradiction
 around run identity (see `docs/adr/0003-run-id-determinism.md`), and a
 user-supplied drift reference distribution (`docs/adr/0002-drift-reference-distribution.md`).
 Gate thresholds are centrally configured in `config/gates.yaml`, never hardcoded.
+Phase 3 (advanced imputation & outlier detection) — complete: MICE
+(`IterativeImputer`) and KNN imputation with per-column-type routing and
+convergence diagnostics, Isolation Forest and LOF outlier detection that
+scores every row instead of dropping it
+(`services/ml-engine-py/app/pipeline/{imputation,outliers}.py`). Benchmarked
+against mean-imputation/IQR baselines in
+`docs/research/imputation_outlier_benchmark.md` — MICE/KNN beat mean-imputation
+cleanly, but Isolation Forest underperforms the IQR baseline on real,
+high-dimensional data and LOF's advantage is inconsistent; see that write-up's
+Interpretation and Limitations sections before citing either result. This
+mixed finding is exactly the kind of thing the Phase 5 RL agent's reward
+signal needs to be sensitive to, not smoothed over.
+Phase 4 (Bayesian HPO & stacked ensembles) — complete: one Optuna study
+per model family (XGBoost, LightGBM, RandomForest, ElasticNet/LogisticRegression),
+TPE sampler with median pruning, cross-validated objective
+(`services/ml-engine-py/app/pipeline/estimation/optuna_search.py`), and a
+`StackingClassifier`/`StackingRegressor` combining the tuned base models
+(`.../estimation/stacking.py`). New `estimation` block in `config/gates.yaml`
+(`EstimationConfig` in `config.py`) versions `n_trials`, `cv_folds`, and the
+model-family list into `config_hash`, consistent with the rest of the pipeline.
+Benchmarked in `docs/research/optuna_stacking_benchmark.md`: the stack reliably
+beats an untuned default-hyperparameter baseline, but on this benchmark pass it
+did **not** consistently beat the single best *tuned* model — the tuned linear
+model won on most (dataset, seed) pairs, because two of the three benchmark
+datasets are synthetic with a near-linear signal. Read that write-up's
+Limitations section before treating "stacking beats tuning" as established;
+what's established so far is narrower ("stacking beats not tuning at all").
+Trial-level lineage logging (`hyperparameters`/`metrics` tables) is not yet
+wired up — `TrialRecord` is shaped for it but the DB write is a Phase 5/8
+follow-up, needed before the RL agent's reward signal can read real trial
+history.
 
 ## Local development
 
@@ -43,6 +74,17 @@ DATABASE_URL=postgres://dataprepx:dataprepx@localhost:5432/dataprepx?sslmode=dis
     .venv/bin/pytest -v -m db
 ```
 
+To reproduce the Phase 3 imputation/outlier benchmark or the Phase 4
+Optuna/stacking benchmark (both are excluded from the default `pytest` run
+via the `research` marker, and are slow — the stacking one especially so
+with production-scale `n_trials`):
+
+```bash
+cd services/ml-engine-py
+python3 -m tests.research.benchmark_imputation_outliers
+python3 -m tests.research.benchmark_hpo_stacking
+```
+
 Service ports (local): gateway-go `:8080`, ml-engine-py `:8000`,
 agent-orchestrator `:8001`, frontend-react `:4173` (`:5173` under
 `docker-compose.dev.yml`), postgres `:5432`, redis `:6379`, ollama `:11434`.
@@ -53,7 +95,9 @@ agent-orchestrator `:8001`, frontend-react `:4173` (`:5173` under
 services/
 ├── gateway-go/          Go: auth, job submit/poll, WebSocket status
 ├── ml-engine-py/        Python/FastAPI: pipeline core + Celery tasks
-│   └── app/pipeline/    validation_gates.py, lineage.py, hashing.py, config.py
+│   └── app/pipeline/    validation_gates.py, lineage.py, hashing.py, config.py,
+│                        imputation.py, outliers.py, estimation/
+│                        (optuna_search.py, stacking.py)
 ├── agent-orchestrator/  Python/LangGraph: bounded summarizer, Ollama client
 └── frontend-react/      React/TS SPA
 contracts/               Shared JSON Schema (job model) used across services

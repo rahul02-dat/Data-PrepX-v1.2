@@ -12,6 +12,9 @@ dependencies = [
     "pyyaml>=6.0",
     "psycopg[binary]>=3.1",
     "scikit-learn>=1.4",
+    "optuna>=3.6",
+    "xgboost>=2.0",
+    "lightgbm>=4.3",
 ]
 
 [project.optional-dependencies]
@@ -38,6 +41,10 @@ target-version = ["py311"]
 packages = ["app"]
 
 [tool.pytest.ini_options]
+filterwarnings = [
+    "ignore:.*'penalty' was deprecated.*:FutureWarning",
+    "ignore:.*The max_iter was reached.*:sklearn.exceptions.ConvergenceWarning"
+]
 markers = [
     "db: requires a live Postgres reachable via DATABASE_URL (excluded from default `pytest` run)",
     "research: runs the multi-seed benchmark suite that produces docs/research/ write-ups (slow; excluded from default `pytest` run)",
