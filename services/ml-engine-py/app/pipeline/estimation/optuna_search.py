@@ -11,6 +11,11 @@ from sklearn.base import BaseEstimator
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.linear_model import ElasticNet, LogisticRegression
 from sklearn.model_selection import KFold, StratifiedKFold, cross_val_score
+from sklearn.exceptions import ConvergenceWarning
+import warnings
+
+warnings.filterwarnings("ignore", category=ConvergenceWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 TaskType = Literal["classification", "regression"]
 ModelFamily = Literal["xgboost", "lightgbm", "random_forest", "linear"]
@@ -124,7 +129,7 @@ def build_estimator(
     if family == "linear":
         if task == "classification":
             return LogisticRegression(
-                penalty="elasticnet", solver="saga", max_iter=2000, random_state=seed, **params
+                solver="saga", max_iter=2000, random_state=seed, **params
             )
         return ElasticNet(random_state=seed, max_iter=5000, **params)
     raise ValueError(f"unknown model family: {family!r}")

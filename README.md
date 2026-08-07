@@ -1,13 +1,15 @@
 # DataPrepX v2
-
+<div align="justify">
 Research-grade, autonomous data preparation and modeling platform for
 tabular data. RL-selected preprocessing, meta-learned feature adaptation,
 hard validation gates with immutable lineage, Bayesian-tuned stacked
 ensembles, and a bounded (statistics-verified, never free-form) LLM
 summarizer.
+</div>
 
 ## Status
 
+<div align="justify">
 Phase 0 (foundations & monorepo scaffold) — complete.
 Phase 1 (data contracts & job model) — complete: shared JSON Schema
 contract (`contracts/job.schema.json`), full Postgres lineage schema
@@ -53,6 +55,7 @@ Trial-level lineage logging (`hyperparameters`/`metrics` tables) is not yet
 wired up — `TrialRecord` is shaped for it but the DB write is a Phase 5/8
 follow-up, needed before the RL agent's reward signal can read real trial
 history.
+</div>
 
 ## Local development
 
@@ -65,8 +68,10 @@ make test      # Go + Python + frontend test suites (unit only; excludes db-mark
 make lint      # gofmt/vet, ruff/black, tsc
 ```
 
+<div align="justify">
 To exercise the lineage/gate code against a real Postgres instance (rather than
 the mocked unit tests in `test_lineage.py`), after `make up` and `make migrate`:
+</div>
 
 ```bash
 cd services/ml-engine-py
@@ -74,10 +79,12 @@ DATABASE_URL=postgres://dataprepx:dataprepx@localhost:5432/dataprepx?sslmode=dis
     .venv/bin/pytest -v -m db
 ```
 
+<div align="justify">
 To reproduce the Phase 3 imputation/outlier benchmark or the Phase 4
 Optuna/stacking benchmark (both are excluded from the default `pytest` run
 via the `research` marker, and are slow — the stacking one especially so
 with production-scale `n_trials`):
+</div>
 
 ```bash
 cd services/ml-engine-py
@@ -85,9 +92,11 @@ python3 -m tests.research.benchmark_imputation_outliers
 python3 -m tests.research.benchmark_hpo_stacking
 ```
 
+<div align="justify">
 Service ports (local): gateway-go `:8080`, ml-engine-py `:8000`,
 agent-orchestrator `:8001`, frontend-react `:4173` (`:5173` under
 `docker-compose.dev.yml`), postgres `:5432`, redis `:6379`, ollama `:11434`.
+</div>
 
 ## Repository layout
 
@@ -111,5 +120,7 @@ tests/
 └── research/            reproducibility + benchmark harness
 ```
 
+<div align="justify">
 This is a from-scratch build. No module here is derived from or should be
 reconciled against any prior codebase.
+</div>
