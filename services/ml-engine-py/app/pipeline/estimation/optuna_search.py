@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -9,10 +10,9 @@ from optuna.pruners import MedianPruner
 from optuna.samplers import TPESampler
 from sklearn.base import BaseEstimator
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.exceptions import ConvergenceWarning
 from sklearn.linear_model import ElasticNet, LogisticRegression
 from sklearn.model_selection import KFold, StratifiedKFold, cross_val_score
-from sklearn.exceptions import ConvergenceWarning
-import warnings
 
 warnings.filterwarnings("ignore", category=ConvergenceWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -128,9 +128,7 @@ def build_estimator(
         return cls(random_state=seed, n_jobs=1, verbose=-1, **params)
     if family == "linear":
         if task == "classification":
-            return LogisticRegression(
-                solver="saga", max_iter=2000, random_state=seed, **params
-            )
+            return LogisticRegression(solver="saga", max_iter=2000, random_state=seed, **params)
         return ElasticNet(random_state=seed, max_iter=5000, **params)
     raise ValueError(f"unknown model family: {family!r}")
 
