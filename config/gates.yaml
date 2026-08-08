@@ -39,3 +39,11 @@ estimation:
   tree_model_families: [xgboost, lightgbm, random_forest]
   include_linear_family: true
   stacking_cv_folds: 5
+
+rl_optimizer:
+  alpha: 0.1
+  gamma: 0.9
+  epsilon: 0.3
+  epsilon_decay: 0.98
+  min_epsilon: 0.01
+  reward_mode: full_stack

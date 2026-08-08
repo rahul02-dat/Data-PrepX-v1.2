@@ -86,6 +86,12 @@ class OutlierDetectionConfig:
 
 @dataclass(frozen=True)
 class EstimationConfig:
+    """Phase 4: Bayesian HPO (Optuna) + stacked ensembles.
+
+    One Optuna study is run per model family; the best-of-family models are then combined
+    into a stack. Every field here is versioned as part of config_hash (lineage.py), so a
+    change to n_trials/cv_folds changes run identity, per CLAUDE.md §5.5.
+    """
 
     enabled: bool = True
     n_trials: int = 30
@@ -120,6 +126,34 @@ class EstimationConfig:
 
 
 @dataclass(frozen=True)
+class RLOptimizerConfig:
+    """Phase 5: RL pipeline optimizer (tabular Q-learning). Training-loop defaults live here so
+    they're versioned like everything else in PipelineConfig, not hardcoded in train.py."""
+
+    alpha: float = 0.1
+    gamma: float = 0.9
+    epsilon: float = 0.3
+    epsilon_decay: float = 0.98
+    min_epsilon: float = 0.01
+    # "full_stack" (default, per ADR 0005) or "fast_surrogate" (planner's recommended
+    # alternative -- see reward_functions.py).
+    reward_mode: str = "full_stack"
+
+    def __post_init__(self) -> None:
+        if self.reward_mode not in ("full_stack", "fast_surrogate"):
+            raise ValueError(
+                f"rl_optimizer.reward_mode must be 'full_stack' or 'fast_surrogate', "
+                f"got {self.reward_mode!r}"
+            )
+        if not (0.0 < self.alpha <= 1.0):
+            raise ValueError(f"rl_optimizer.alpha must be in (0, 1], got {self.alpha}")
+        if not (0.0 <= self.epsilon <= 1.0):
+            raise ValueError(f"rl_optimizer.epsilon must be in [0, 1], got {self.epsilon}")
+        if not (0.0 <= self.gamma <= 1.0):
+            raise ValueError(f"rl_optimizer.gamma must be in [0, 1], got {self.gamma}")
+
+
+@dataclass(frozen=True)
 class PipelineConfig:
     max_null_rate_gate: MaxNullRateGateConfig = field(default_factory=MaxNullRateGateConfig)
     schema_conformance_gate: SchemaConformanceGateConfig = field(
@@ -129,13 +163,14 @@ class PipelineConfig:
     imputation: ImputationConfig = field(default_factory=ImputationConfig)
     outlier_detection: OutlierDetectionConfig = field(default_factory=OutlierDetectionConfig)
     estimation: EstimationConfig = field(default_factory=EstimationConfig)
+    rl_optimizer: RLOptimizerConfig = field(default_factory=RLOptimizerConfig)
 
     # Convert dataclass configuration to dictionary
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
-# About function: Get gate config path
+# Resolve path to gate configuration file
 def config_path() -> Path:
     override = os.environ.get("GATE_CONFIG_PATH")
     return Path(override) if override else _DEFAULT_CONFIG_PATH
@@ -165,4 +200,5 @@ def load_pipeline_config(path: Path | None = None) -> PipelineConfig:
         imputation=ImputationConfig(**raw.get("imputation", {})),
         outlier_detection=OutlierDetectionConfig(**raw.get("outlier_detection", {})),
         estimation=EstimationConfig(**estimation_raw),
+        rl_optimizer=RLOptimizerConfig(**raw.get("rl_optimizer", {})),
     )

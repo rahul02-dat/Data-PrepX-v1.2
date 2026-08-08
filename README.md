@@ -1,15 +1,13 @@
 # DataPrepX v2
-<div align="justify">
+
 Research-grade, autonomous data preparation and modeling platform for
 tabular data. RL-selected preprocessing, meta-learned feature adaptation,
 hard validation gates with immutable lineage, Bayesian-tuned stacked
 ensembles, and a bounded (statistics-verified, never free-form) LLM
 summarizer.
-</div>
 
 ## Status
 
-<div align="justify">
 Phase 0 (foundations & monorepo scaffold) — complete.
 Phase 1 (data contracts & job model) — complete: shared JSON Schema
 contract (`contracts/job.schema.json`), full Postgres lineage schema
@@ -51,11 +49,36 @@ model won on most (dataset, seed) pairs, because two of the three benchmark
 datasets are synthetic with a near-linear signal. Read that write-up's
 Limitations section before treating "stacking beats tuning" as established;
 what's established so far is narrower ("stacking beats not tuning at all").
-Trial-level lineage logging (`hyperparameters`/`metrics` tables) is not yet
-wired up — `TrialRecord` is shaped for it but the DB write is a Phase 5/8
-follow-up, needed before the RL agent's reward signal can read real trial
-history.
-</div>
+Also added: `app/pipeline/estimation/dataset_loading.py` (loads arbitrary CSVs,
+auto-detects target column/task type; `load_dataset_with_auto_preprocess` for
+quick exploration — imputes/encodes features only, never the target, drops
+rather than fabricates rows with a missing target) and `run_on_dataset.py`, a
+CLI to run the Phase 4 stack against any file.
+Phase 4/5 lineage wiring — complete: `LineageRecorder` now has
+`record_hyperparameter_trial`/`record_study_trials` and `record_metric`
+(writing into the `hyperparameters`/`metrics` tables Phase 1 already defined),
+plus `record_rl_episode` writing into a new `rl_episodes` table
+(`infra/postgres/migrations/0005_rl_episodes.*.sql`). This closes the gap Phase
+4 originally shipped with (trial results existed in code but were never
+persisted to Postgres) and gives Phase 5 somewhere real to log episodes.
+Phase 5 (RL pipeline optimizer) — environment, agent, and reward wiring
+complete and unit-tested (70 tests across `meta_features.py`,
+`state_discretization.py`, `environment.py`, `q_learning.py`); **the actual
+training run and convergence-curve research artifact have not been produced.**
+`PreprocessingEnv` is a single-step (contextual-bandit) environment over an
+18-action space ({MICE,KNN} x {IsolationForest,LOF,none} x threshold bin);
+`QLearningAgent` is tabular epsilon-greedy Q-learning. The reward is
+`full_stack_reward_fn` — the entire Phase 4 stack, run fresh every episode —
+by explicit, informed project-owner decision against the planner's own
+recommendation to use a cheap surrogate during training
+(see `docs/adr/0005-rl-reward-cost-and-environment-design.md`). Measured
+(not estimated) cost at minimal settings was 15-32s/episode; at production
+Optuna settings this is realistically 10-30+ minutes per episode, meaning a
+100-episode training run is on the order of 20-40+ hours of compute. That run
+has not been executed here — `train.py` was smoke-tested for correctness (2
+real full-stack episodes, 15 fast-surrogate episodes) but the real training
+run, its convergence curve, and the brute-force-grid-search comparison the
+planner's Phase 5 acceptance criterion requires are still outstanding.
 
 ## Local development
 
@@ -68,10 +91,8 @@ make test      # Go + Python + frontend test suites (unit only; excludes db-mark
 make lint      # gofmt/vet, ruff/black, tsc
 ```
 
-<div align="justify">
 To exercise the lineage/gate code against a real Postgres instance (rather than
 the mocked unit tests in `test_lineage.py`), after `make up` and `make migrate`:
-</div>
 
 ```bash
 cd services/ml-engine-py
@@ -79,12 +100,10 @@ DATABASE_URL=postgres://dataprepx:dataprepx@localhost:5432/dataprepx?sslmode=dis
     .venv/bin/pytest -v -m db
 ```
 
-<div align="justify">
 To reproduce the Phase 3 imputation/outlier benchmark or the Phase 4
 Optuna/stacking benchmark (both are excluded from the default `pytest` run
 via the `research` marker, and are slow — the stacking one especially so
 with production-scale `n_trials`):
-</div>
 
 ```bash
 cd services/ml-engine-py
@@ -92,11 +111,9 @@ python3 -m tests.research.benchmark_imputation_outliers
 python3 -m tests.research.benchmark_hpo_stacking
 ```
 
-<div align="justify">
 Service ports (local): gateway-go `:8080`, ml-engine-py `:8000`,
 agent-orchestrator `:8001`, frontend-react `:4173` (`:5173` under
 `docker-compose.dev.yml`), postgres `:5432`, redis `:6379`, ollama `:11434`.
-</div>
 
 ## Repository layout
 
@@ -106,7 +123,10 @@ services/
 ├── ml-engine-py/        Python/FastAPI: pipeline core + Celery tasks
 │   └── app/pipeline/    validation_gates.py, lineage.py, hashing.py, config.py,
 │                        imputation.py, outliers.py, estimation/
-│                        (optuna_search.py, stacking.py)
+│                        (optuna_search.py, stacking.py, dataset_loading.py,
+│                        run_on_dataset.py), rl_optimizer/
+│                        (environment.py, q_learning.py, meta_features.py,
+│                        state_discretization.py, reward_functions.py, train.py)
 ├── agent-orchestrator/  Python/LangGraph: bounded summarizer, Ollama client
 └── frontend-react/      React/TS SPA
 contracts/               Shared JSON Schema (job model) used across services
@@ -120,7 +140,5 @@ tests/
 └── research/            reproducibility + benchmark harness
 ```
 
-<div align="justify">
 This is a from-scratch build. No module here is derived from or should be
 reconciled against any prior codebase.
-</div>

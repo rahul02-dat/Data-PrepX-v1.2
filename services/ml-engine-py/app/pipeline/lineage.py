@@ -171,6 +171,94 @@ class LineageRecorder:
             )
             return step_id
 
+    # Persist one Optuna trial row (Phase 4). One row per (run, model_family, trial_number),
+    # matching the `hyperparameters` table shape exactly (CLAUDE.md §6).
+    def record_hyperparameter_trial(
+        self,
+        run_id: str,
+        *,
+        model_family: str,
+        trial_number: int,
+        params: dict[str, Any],
+        score: float | None,
+    ) -> str:
+        with self._conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                INSERT INTO hyperparameters (run_id, model_family, trial_number, params_json, score)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (run_id, model_family, trial_number, psycopg.types.json.Json(params), score),
+            )
+            return str(cur.fetchone()["id"])
+
+    # Bulk-persist every trial from a Phase 4 StudyResult.trials list in one call, so a caller
+    # doesn't have to loop record_hyperparameter_trial itself for every family it searched.
+    def record_study_trials(self, run_id: str, trials: list[Any]) -> list[str]:
+        return [
+            self.record_hyperparameter_trial(
+                run_id,
+                model_family=trial.model_family,
+                trial_number=trial.trial_number,
+                params=trial.params,
+                score=trial.score,
+            )
+            for trial in trials
+        ]
+
+    # Persist a named metric with optional confidence interval bounds (CLAUDE.md §6 `metrics`
+    # table). Used for the stack's final CV score, the single-best-family score, etc.
+    def record_metric(
+        self,
+        run_id: str,
+        *,
+        name: str,
+        value: float,
+        ci_low: float | None = None,
+        ci_high: float | None = None,
+    ) -> str:
+        with self._conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                INSERT INTO metrics (run_id, name, value, ci_low, ci_high)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (run_id, name, value, ci_low, ci_high),
+            )
+            return str(cur.fetchone()["id"])
+
+    # Persist a Phase 5 RL episode: state, action, reward, and the run_id the reward's
+    # estimation run produced (CLAUDE.md §5.1: "every episode (state, action, reward, resulting
+    # run_id) is persisted for offline analysis"). run_id may be NULL when the episode used a
+    # surrogate reward that never produced a full lineage-tracked run.
+    def record_rl_episode(
+        self,
+        *,
+        episode_number: int,
+        state: dict[str, Any],
+        action: dict[str, Any],
+        reward: float,
+        run_id: str | None,
+    ) -> str:
+        with self._conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                INSERT INTO rl_episodes (episode_number, state_json, action_json, reward, run_id)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    episode_number,
+                    psycopg.types.json.Json(state),
+                    psycopg.types.json.Json(action),
+                    reward,
+                    run_id,
+                ),
+            )
+            return str(cur.fetchone()["id"])
+
     # Fetch recorded run execution details
     def replay_run(self, run_id: str) -> ReplayRecord:
         with self._conn.cursor(row_factory=dict_row) as cur:
