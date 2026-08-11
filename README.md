@@ -96,11 +96,23 @@ was flaky because linear regression converges fast from any initialization,
 which doesn't isolate MAML's actual benefit. `adaptive_loop.py` is
 deliberately a plain synchronous function, not a Celery task, since Phase 8
 (async execution) hasn't landed yet; a future Celery task can call
-`run_adaptive_step` directly. **Not yet done:** the Phase 6 research artifact
-(simulated concept-drift stream comparing MAML-adapted vs. static vs.
-oracle-retrained-every-batch) required by the planner's acceptance criterion
-— this is explicitly deferred, the same way Phase 5's training run was, and
-should not be read as complete.
+`run_adaptive_step` directly. The Phase 6 research artifact required by the
+planner's acceptance criterion — a simulated concept-drift stream comparing
+MAML-adapted vs. static vs. oracle-retrained-every-batch — is done:
+`docs/research/meta_learning_drift_benchmark.md`. MAML beat the static
+baseline on every (regime, seed) pair tested and matched oracle's accuracy
+almost exactly at the largest batch-size regime, at 20x fewer per-batch
+gradient steps. At smaller batch sizes MAML's accuracy exceeded oracle's,
+which is a real, documented property of MAML in the low-data regime (a
+good meta-learned prior resists overfitting an unregularized from-scratch
+fit on very few points) rather than an error — see that write-up's
+Interpretation section. That benchmark also has an explicit, important scope
+boundary: it validates MAML's fast-adaptation claim in isolation and does
+*not* exercise `adaptive_loop.py`'s `DriftGate`-triggered logic end-to-end,
+because the benchmark's synthetic drift lives in the label function, not the
+feature distribution the `DriftGate` inspects — see that write-up's "What
+this benchmark does NOT test" section before citing it as validating the
+full adaptive loop.
 
 ## Local development
 
@@ -122,15 +134,21 @@ DATABASE_URL=postgres://dataprepx:dataprepx@localhost:5432/dataprepx?sslmode=dis
     .venv/bin/pytest -v -m db
 ```
 
-To reproduce the Phase 3 imputation/outlier benchmark or the Phase 4
-Optuna/stacking benchmark (both are excluded from the default `pytest` run
-via the `research` marker, and are slow — the stacking one especially so
-with production-scale `n_trials`):
+To reproduce the Phase 3 imputation/outlier benchmark, the Phase 4
+Optuna/stacking benchmark, or the Phase 6 meta-learning drift benchmark (all
+excluded from the default `pytest` run via the `research` marker, and are
+slow — the stacking one especially so with production-scale `n_trials`):
 
 ```bash
-cd services/ml-engine-py
-python3 -m tests.research.benchmark_imputation_outliers
-python3 -m tests.research.benchmark_hpo_stacking
+# Run from the REPO ROOT, not services/ml-engine-py -- `tests/research/` is a
+# root-level namespace package. `cd services/ml-engine-py` first (as earlier
+# revisions of this README suggested) does not work: `python3 -m
+# tests.research.<module>` needs the repo root on the current-directory path
+# to find `tests`, and the ml-engine-py venv (for `app.*` imports) is invoked
+# by its full path instead.
+services/ml-engine-py/.venv/bin/python3 -m tests.research.benchmark_imputation_outliers
+services/ml-engine-py/.venv/bin/python3 -m tests.research.benchmark_hpo_stacking
+services/ml-engine-py/.venv/bin/python3 -m tests.research.benchmark_meta_learning_drift
 ```
 
 Service ports (local): gateway-go `:8080`, ml-engine-py `:8000`,
