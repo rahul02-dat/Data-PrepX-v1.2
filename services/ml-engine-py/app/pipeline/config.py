@@ -154,6 +154,95 @@ class RLOptimizerConfig:
 
 
 @dataclass(frozen=True)
+class GeneticSelectorConfig:
+    """Phase 6: genetic-algorithm feature selector (CLAUDE.md §5.2). Usable standalone,
+    independent of MAML -- the adaptive loop calls both, but either can run on its own."""
+
+    enabled: bool = True
+    population_size: int = 30
+    n_generations: int = 20
+    crossover_rate: float = 0.7
+    mutation_rate: float = 0.05
+    tournament_size: int = 3
+    elitism_count: int = 2
+    min_features: int = 1
+
+    # Validate configuration parameters
+    def __post_init__(self) -> None:
+        if self.population_size < 2:
+            raise ValueError(
+                f"genetic_selector.population_size must be >= 2, got {self.population_size}"
+            )
+        if not (0.0 <= self.crossover_rate <= 1.0):
+            raise ValueError(
+                f"genetic_selector.crossover_rate must be in [0, 1], got {self.crossover_rate}"
+            )
+        if not (0.0 <= self.mutation_rate <= 1.0):
+            raise ValueError(
+                f"genetic_selector.mutation_rate must be in [0, 1], got {self.mutation_rate}"
+            )
+        if self.tournament_size < 1:
+            raise ValueError(
+                f"genetic_selector.tournament_size must be >= 1, got {self.tournament_size}"
+            )
+        if self.elitism_count < 0 or self.elitism_count >= self.population_size:
+            raise ValueError(
+                "genetic_selector.elitism_count must be in [0, population_size), got "
+                f"{self.elitism_count} (population_size={self.population_size})"
+            )
+        if self.min_features < 1:
+            raise ValueError(f"genetic_selector.min_features must be >= 1, got {self.min_features}")
+        if self.n_generations < 1:
+            raise ValueError(
+                f"genetic_selector.n_generations must be >= 1, got {self.n_generations}"
+            )
+
+
+@dataclass(frozen=True)
+class MAMLConfig:
+    """Phase 6: MAML-style fast adaptation over a small/linear or shallow-MLP target model
+    (CLAUDE.md §5.2). hidden_dim=0 means a pure linear head; hidden_dim>0 adds one ReLU hidden
+    layer. Extending this to gradient-boosted trees is explicitly out of scope (see planner
+    §1.3/§6) -- this config has no knob for that on purpose."""
+
+    enabled: bool = True
+    hidden_dim: int = 0
+    inner_lr: float = 0.01
+    outer_lr: float = 0.001
+    inner_steps: int = 5
+    n_outer_steps: int = 100
+    meta_batch_size: int = 4
+    # Inner-loop steps used when fast-adapting to a brand-new batch outside of meta-training
+    # (adaptive_loop.py). Kept separate from inner_steps so a deployment can meta-train with
+    # more steps than it can afford at adaptation time, or vice versa.
+    adapt_steps: int = 5
+    seed: int = 42
+
+    # Validate configuration parameters
+    def __post_init__(self) -> None:
+        if self.hidden_dim < 0:
+            raise ValueError(f"maml.hidden_dim must be >= 0, got {self.hidden_dim}")
+        if self.inner_lr <= 0:
+            raise ValueError(f"maml.inner_lr must be > 0, got {self.inner_lr}")
+        if self.outer_lr <= 0:
+            raise ValueError(f"maml.outer_lr must be > 0, got {self.outer_lr}")
+        if self.inner_steps < 1:
+            raise ValueError(f"maml.inner_steps must be >= 1, got {self.inner_steps}")
+        if self.adapt_steps < 1:
+            raise ValueError(f"maml.adapt_steps must be >= 1, got {self.adapt_steps}")
+        if self.n_outer_steps < 1:
+            raise ValueError(f"maml.n_outer_steps must be >= 1, got {self.n_outer_steps}")
+        if self.meta_batch_size < 1:
+            raise ValueError(f"maml.meta_batch_size must be >= 1, got {self.meta_batch_size}")
+
+
+@dataclass(frozen=True)
+class MetaLearningConfig:
+    genetic_selector: GeneticSelectorConfig = field(default_factory=GeneticSelectorConfig)
+    maml: MAMLConfig = field(default_factory=MAMLConfig)
+
+
+@dataclass(frozen=True)
 class PipelineConfig:
     max_null_rate_gate: MaxNullRateGateConfig = field(default_factory=MaxNullRateGateConfig)
     schema_conformance_gate: SchemaConformanceGateConfig = field(
@@ -164,6 +253,7 @@ class PipelineConfig:
     outlier_detection: OutlierDetectionConfig = field(default_factory=OutlierDetectionConfig)
     estimation: EstimationConfig = field(default_factory=EstimationConfig)
     rl_optimizer: RLOptimizerConfig = field(default_factory=RLOptimizerConfig)
+    meta_learning: MetaLearningConfig = field(default_factory=MetaLearningConfig)
 
     # Convert dataclass configuration to dictionary
     def as_dict(self) -> dict[str, Any]:
@@ -201,4 +291,10 @@ def load_pipeline_config(path: Path | None = None) -> PipelineConfig:
         outlier_detection=OutlierDetectionConfig(**raw.get("outlier_detection", {})),
         estimation=EstimationConfig(**estimation_raw),
         rl_optimizer=RLOptimizerConfig(**raw.get("rl_optimizer", {})),
+        meta_learning=MetaLearningConfig(
+            genetic_selector=GeneticSelectorConfig(
+                **raw.get("meta_learning", {}).get("genetic_selector", {})
+            ),
+            maml=MAMLConfig(**raw.get("meta_learning", {}).get("maml", {})),
+        ),
     )
