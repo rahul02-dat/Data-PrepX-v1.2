@@ -79,6 +79,28 @@ has not been executed here — `train.py` was smoke-tested for correctness (2
 real full-stack episodes, 15 fast-surrogate episodes) but the real training
 run, its convergence curve, and the brute-force-grid-search comparison the
 planner's Phase 5 acceptance criterion requires are still outstanding.
+Phase 6 (meta-learning for adaptive feature engineering) — core modules
+complete and unit-tested (39 tests across `genetic_selector.py`, `maml.py`,
+`adaptive_loop.py`): a genetic-algorithm feature selector with standard
+operators (tournament selection, uniform crossover, bit-flip mutation,
+elitism), a PyTorch-based `MAMLLearner` scoped to a linear or one-hidden-layer
+head per CLAUDE.md §5.2 (never gradient-boosted trees — see
+`docs/adr/0006-maml-target-model-scope.md` for why PyTorch was pulled in and
+how the scope is enforced in code, not just documented), and a standalone
+`adaptive_loop.py` that only re-runs GA reselection + MAML adaptation when the
+Phase 2 `DriftGate` flags drift, otherwise reusing the existing feature
+set/model. The MAML "fast adaptation beats training from scratch" claim is
+verified with the canonical sine-regression few-shot benchmark (Finn et al.,
+2017), not an easy linear task — an earlier linear-task version of that test
+was flaky because linear regression converges fast from any initialization,
+which doesn't isolate MAML's actual benefit. `adaptive_loop.py` is
+deliberately a plain synchronous function, not a Celery task, since Phase 8
+(async execution) hasn't landed yet; a future Celery task can call
+`run_adaptive_step` directly. **Not yet done:** the Phase 6 research artifact
+(simulated concept-drift stream comparing MAML-adapted vs. static vs.
+oracle-retrained-every-batch) required by the planner's acceptance criterion
+— this is explicitly deferred, the same way Phase 5's training run was, and
+should not be read as complete.
 
 ## Local development
 
@@ -126,7 +148,9 @@ services/
 │                        (optuna_search.py, stacking.py, dataset_loading.py,
 │                        run_on_dataset.py), rl_optimizer/
 │                        (environment.py, q_learning.py, meta_features.py,
-│                        state_discretization.py, reward_functions.py, train.py)
+│                        state_discretization.py, reward_functions.py, train.py),
+│                        meta_learning/ (genetic_selector.py, maml.py,
+│                        adaptive_loop.py)
 ├── agent-orchestrator/  Python/LangGraph: bounded summarizer, Ollama client
 └── frontend-react/      React/TS SPA
 contracts/               Shared JSON Schema (job model) used across services
