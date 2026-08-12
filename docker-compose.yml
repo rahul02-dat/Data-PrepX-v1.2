@@ -85,6 +85,7 @@ services:
     environment:
       OLLAMA_URL: "http://ollama:11434"
       ML_ENGINE_URL: "http://ml-engine-py:8000"
+      SUMMARIZER_OLLAMA_MODEL: "llama3.1:8b-instruct-q4_K_M"
     ports:
       - "8001:8001"
     depends_on:
@@ -104,3 +105,4 @@ services:
 volumes:
   postgres-data:
   ollama-data:
+  

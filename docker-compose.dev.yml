@@ -25,6 +25,10 @@ services:
   agent-orchestrator:
     volumes:
       - ./services/agent-orchestrator/app.py:/app/app.py
+      - ./services/agent-orchestrator/config.py:/app/config.py
+      - ./services/agent-orchestrator/ollama_client.py:/app/ollama_client.py
+      - ./services/agent-orchestrator/graphs:/app/graphs
+      - ./services/agent-orchestrator/prompts:/app/prompts
     command:
       ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]
 
@@ -37,3 +41,4 @@ services:
     command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
     ports:
       - "5173:5173"
+      

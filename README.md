@@ -112,7 +112,48 @@ boundary: it validates MAML's fast-adaptation claim in isolation and does
 because the benchmark's synthetic drift lives in the label function, not the
 feature distribution the `DriftGate` inspects — see that write-up's "What
 this benchmark does NOT test" section before citing it as validating the
-full adaptive loop.
+full adaptive loop. Phase 7 (bounded LLM reasoning: RAG summarizer) — complete: a six-node
+LangGraph state machine in `services/agent-orchestrator/graphs/summarizer_graph.py`
+implementing exactly the node sequence CLAUDE.md §5.4 specifies —
+`compute_stats -> retrieve_grounding_facts -> draft_claim ->
+verify_claim_against_stats -> score_confidence -> emit_or_flag`. Only
+`draft_claim` calls the LLM (via `ollama_client.py`); the other five nodes
+are pure, deterministic Python functions in `graphs/nodes.py`, independently
+unit-tested without LangGraph or a live Ollama server. `verify_claim_against_stats`
+re-checks every numeric value the model drafts against the real computed
+statistic within a versioned relative tolerance (`config.py`,
+`verification_relative_tolerance`, default 2%) — a claim that doesn't match
+is dropped, never softened. `score_confidence` derives a confidence label
+(`high` / `moderate` / `inconclusive` / `unknown`) purely from each metric's
+relative CI width, never from the LLM's own phrasing; `emit_or_flag` then
+splits the report into accepted, flagged (inconclusive/unknown-confidence,
+never asserted as fact), and rejected (failed verification) claims. A new
+`POST /v1/summarize` endpoint on agent-orchestrator accepts a list of
+already-computed `metrics` (name, value, ci_low, ci_high — the same shape as
+the `metrics` Postgres table) and returns this report; agent-orchestrator
+still never receives raw data, per CLAUDE.md §2. Model choice
+(Llama 3.1 8B Instruct, Q4_K_M) and rationale are recorded in
+`docs/adr/0007-ollama-model-choice.md`. 33 tests pass
+(`services/agent-orchestrator/tests/`), covering: stat derivation and
+CI-width edge cases (zero value, missing CI), grounding-fact formatting,
+claim verification (accept/reject/unknown-metric/tolerance-boundary),
+confidence scoring at each label boundary, report assembly, LLM-response
+parsing (valid JSON, markdown-fenced JSON, malformed JSON, missing fields,
+non-numeric values), the Ollama HTTP client (mocked), the full graph
+end-to-end with a fake LLM (including the malformed-output path, which
+degrades to an empty report plus a `draft_error` field rather than crashing),
+and the FastAPI endpoint. `pyproject.toml` gained `httpx`, `pydantic`, and
+`langgraph` as runtime dependencies; `ruff check` and `black --check` both
+pass. **Not yet done, and explicitly out of scope for this pass:** the
+Phase 7 acceptance criterion's adversarial/ambiguous test suite validated
+against hand-labeled expected flags (CLAUDE.md's own bar for "done") — the
+unit tests above validate the mechanism (verification and confidence-scoring
+logic are each independently correct), but no corpus of realistic
+near-threshold-p-value / high-variance findings has been hand-labeled and
+run through the live graph yet. That labeling exercise, plus wiring
+`/v1/summarize` to be called automatically once a Phase 4/5/6 run completes
+(rather than only via direct API call), are the two concrete gaps before
+Phase 7 can be marked fully done against its own acceptance bar.
 
 ## Local development
 

@@ -1,17 +1,19 @@
 [project]
 name = "dataprepx-agent-orchestrator"
 version = "0.0.1"
-description = "Bounded RAG summarizer service (LangGraph + Ollama). Real graph wiring lands in Phase 7 per docs/01_IMPLEMENTATION_PLANNER.md."
+description = "Bounded RAG summarizer service (LangGraph + Ollama). Phase 7: compute_stats -> retrieve_grounding_facts -> draft_claim -> verify_claim_against_stats -> score_confidence -> emit_or_flag, per docs/01_IMPLEMENTATION_PLANNER.md."
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.110",
     "uvicorn>=0.29",
+    "pydantic>=2.6",
+    "httpx>=0.27",
+    "langgraph>=0.2",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
-    "httpx>=0.27",
     "ruff>=0.4",
     "black>=24.0",
 ]
@@ -25,8 +27,12 @@ line-length = 100
 target-version = ["py311"]
 
 [tool.setuptools]
-py-modules = ["app"]
+py-modules = ["app", "config", "ollama_client"]
+packages = ["graphs", "prompts"]
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+pythonpath = "."
