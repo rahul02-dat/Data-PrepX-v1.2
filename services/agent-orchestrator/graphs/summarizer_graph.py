@@ -5,6 +5,10 @@ from typing import Any, TypedDict
 from langgraph.graph import END, StateGraph
 
 from config import SummarizerConfig, load_summarizer_config
+from graphs.schemas import ComputedStat, Metric
+from ollama_client import GenerateFn, OllamaClient
+from prompts.summarizer_prompt import ClaimParseError, build_prompt, parse_drafted_claims
+
 from .nodes import (
     compute_stats,
     emit_or_flag,
@@ -12,9 +16,6 @@ from .nodes import (
     score_confidence,
     verify_claim_against_stats,
 )
-from graphs.schemas import ComputedStat, Metric
-from ollama_client import GenerateFn, OllamaClient
-from prompts.summarizer_prompt import ClaimParseError, build_prompt, parse_drafted_claims
 
 
 class SummarizerState(TypedDict, total=False):

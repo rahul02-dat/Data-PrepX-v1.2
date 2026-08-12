@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from config import SummarizerConfig
+
 from .schemas import (
     ComputedStat,
     DraftedClaim,
