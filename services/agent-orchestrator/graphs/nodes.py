@@ -13,11 +13,6 @@ from .schemas import (
     VerifiedClaim,
 )
 
-# ---------------------------------------------------------------------------
-# compute_stats: deterministic. Turns raw Metric rows into ComputedStat rows carrying the
-# derived quantities (ci_width, relative_ci_width) every downstream node needs. No LLM call.
-# ---------------------------------------------------------------------------
-
 
 def compute_stats(metrics: list[Metric]) -> list[ComputedStat]:
     stats: list[ComputedStat] = []
@@ -41,13 +36,6 @@ def compute_stats(metrics: list[Metric]) -> list[ComputedStat]:
     return stats
 
 
-# ---------------------------------------------------------------------------
-# retrieve_grounding_facts: deterministic. Formats each ComputedStat into a plain-language
-# fact string. This -- not raw data -- is the only material the LLM is allowed to see
-# (CLAUDE.md §2: agent-orchestrator never receives raw dataframes).
-# ---------------------------------------------------------------------------
-
-
 def retrieve_grounding_facts(stats: list[ComputedStat]) -> list[GroundingFact]:
     facts: list[GroundingFact] = []
     for s in stats:
@@ -57,13 +45,6 @@ def retrieve_grounding_facts(stats: list[ComputedStat]) -> list[GroundingFact]:
             text = f"{s.name} = {s.value:.6g} (no confidence interval available)"
         facts.append(GroundingFact(metric_name=s.name, text=text))
     return facts
-
-
-# ---------------------------------------------------------------------------
-# verify_claim_against_stats: deterministic, NOT an LLM call (CLAUDE.md §5.4). Every numeric
-# assertion the LLM drafted is re-checked against the real computed statistic before it can
-# reach the final report.
-# ---------------------------------------------------------------------------
 
 
 def verify_claim_against_stats(
@@ -114,12 +95,6 @@ def verify_claim_against_stats(
     return verified
 
 
-# ---------------------------------------------------------------------------
-# score_confidence: deterministic. Confidence derives from relative CI width, per CLAUDE.md
-# §5.4 ("effect size vs. variance/CI width"), never from the LLM's own phrasing or hedging.
-# ---------------------------------------------------------------------------
-
-
 def _confidence_for_relative_width(
     relative_ci_width: float | None, config: SummarizerConfig
 ) -> tuple[str, float | None]:
@@ -156,13 +131,6 @@ def score_confidence(
             )
         )
     return scored
-
-
-# ---------------------------------------------------------------------------
-# emit_or_flag: deterministic. Splits scored claims into the accepted report body and a
-# flagged section -- inconclusive/unknown-confidence findings are never stated as fact
-# (CLAUDE.md §5.4: "explicitly flagged as inconclusive rather than stated as fact").
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)

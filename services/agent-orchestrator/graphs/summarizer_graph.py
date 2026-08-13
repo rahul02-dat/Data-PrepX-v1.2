@@ -19,11 +19,6 @@ from .nodes import (
 
 
 class SummarizerState(TypedDict, total=False):
-    """LangGraph state threaded through compute_stats -> retrieve_grounding_facts ->
-    draft_claim -> verify_claim_against_stats -> score_confidence -> emit_or_flag
-    (CLAUDE.md §5.4). Kept as plain dicts/lists (not the dataclasses in schemas.py) since that
-    is what LangGraph state channels expect; each node converts at its boundary.
-    """
 
     metrics: list[dict]
     computed_stats: list[dict]

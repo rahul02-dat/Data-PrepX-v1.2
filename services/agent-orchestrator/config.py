@@ -6,13 +6,6 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class SummarizerConfig:
-    """Thresholds for the Phase 7 bounded RAG summarizer (CLAUDE.md §5.4).
-
-    Confidence is derived from a claim's relative CI width (ci_width / |value|), not from the
-    LLM's own wording. Smaller relative CI width -> higher confidence. Claims with no CI
-    available cannot be scored and are always flagged rather than guessed at.
-    """
-
     # Below this relative CI width, a claim is "high" confidence.
     high_confidence_max_relative_ci_width: float = 0.15
     # Above this relative CI width, a claim is "inconclusive" and must be flagged, never

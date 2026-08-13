@@ -84,8 +84,7 @@ complete and unit-tested (39 tests across `genetic_selector.py`, `maml.py`,
 `adaptive_loop.py`): a genetic-algorithm feature selector with standard
 operators (tournament selection, uniform crossover, bit-flip mutation,
 elitism), a PyTorch-based `MAMLLearner` scoped to a linear or one-hidden-layer
-head per CLAUDE.md §5.2 (never gradient-boosted trees — see
-`docs/adr/0006-maml-target-model-scope.md` for why PyTorch was pulled in and
+head per docs (never gradient-boosted trees — see `docs/adr/0006-maml-target-model-scope.md` for why PyTorch was pulled in and
 how the scope is enforced in code, not just documented), and a standalone
 `adaptive_loop.py` that only re-runs GA reselection + MAML adaptation when the
 Phase 2 `DriftGate` flags drift, otherwise reusing the existing feature
@@ -114,7 +113,7 @@ feature distribution the `DriftGate` inspects — see that write-up's "What
 this benchmark does NOT test" section before citing it as validating the
 full adaptive loop. Phase 7 (bounded LLM reasoning: RAG summarizer) — complete: a six-node
 LangGraph state machine in `services/agent-orchestrator/graphs/summarizer_graph.py`
-implementing exactly the node sequence CLAUDE.md §5.4 specifies —
+implementing exactly the node sequence as docs specifies —
 `compute_stats -> retrieve_grounding_facts -> draft_claim ->
 verify_claim_against_stats -> score_confidence -> emit_or_flag`. Only
 `draft_claim` calls the LLM (via `ollama_client.py`); the other five nodes
@@ -131,7 +130,7 @@ never asserted as fact), and rejected (failed verification) claims. A new
 `POST /v1/summarize` endpoint on agent-orchestrator accepts a list of
 already-computed `metrics` (name, value, ci_low, ci_high — the same shape as
 the `metrics` Postgres table) and returns this report; agent-orchestrator
-still never receives raw data, per CLAUDE.md §2. Model choice
+still never receives raw data, per docs. Model choice
 (Llama 3.1 8B Instruct, Q4_K_M) and rationale are recorded in
 `docs/adr/0007-ollama-model-choice.md`. 33 tests pass
 (`services/agent-orchestrator/tests/`), covering: stat derivation and
@@ -146,7 +145,7 @@ and the FastAPI endpoint. `pyproject.toml` gained `httpx`, `pydantic`, and
 `langgraph` as runtime dependencies; `ruff check` and `black --check` both
 pass. **Not yet done, and explicitly out of scope for this pass:** the
 Phase 7 acceptance criterion's adversarial/ambiguous test suite validated
-against hand-labeled expected flags (CLAUDE.md's own bar for "done") — the
+against hand-labeled expected flags (docs own bar for "done") — the
 unit tests above validate the mechanism (verification and confidence-scoring
 logic are each independently correct), but no corpus of realistic
 near-threshold-p-value / high-variance findings has been hand-labeled and

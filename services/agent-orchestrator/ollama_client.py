@@ -14,13 +14,6 @@ class GenerateFn(Protocol):
 
 @dataclass
 class OllamaClient:
-    """Minimal client for Ollama's /api/generate endpoint. Kept deliberately thin -- the
-    bounded-reasoning guarantee (CLAUDE.md §5.4) comes from verify_claim_against_stats being a
-    separate deterministic node, not from anything this client does. This class is the only
-    part of the summarizer that makes a network call; every other node is pure and independently
-    unit-testable without it.
-    """
-
     config: SummarizerConfig
 
     # Send a prompt to Ollama and return the raw text response

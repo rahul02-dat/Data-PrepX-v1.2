@@ -8,9 +8,6 @@ ConfidenceLabel = Literal["high", "moderate", "inconclusive", "unknown"]
 
 @dataclass(frozen=True)
 class Metric:
-    """One pre-computed, gate-approved statistic handed to agent-orchestrator by ml-engine-py.
-    Mirrors the `metrics` table (CLAUDE.md §6): name, value, and optional CI bounds. This is the
-    ONLY data agent-orchestrator ever sees -- never a raw dataframe (CLAUDE.md §2)."""
 
     name: str
     value: float
@@ -34,8 +31,6 @@ class Metric:
 
 @dataclass(frozen=True)
 class ComputedStat:
-    """A Metric enriched with the derived quantities confidence scoring needs. Computed once,
-    deterministically, in compute_stats -- never recomputed or restated by the LLM."""
 
     name: str
     value: float
@@ -57,8 +52,6 @@ class ComputedStat:
 
 @dataclass(frozen=True)
 class GroundingFact:
-    """A plain-language, deterministically-formatted rendering of one ComputedStat, handed to
-    the LLM as the ONLY grounding material it is allowed to draft claims from."""
 
     metric_name: str
     text: str
@@ -69,10 +62,6 @@ class GroundingFact:
 
 @dataclass(frozen=True)
 class DraftedClaim:
-    """One claim as drafted by the LLM: a natural-language statement plus the specific numeric
-    value it asserts for a specific metric. This structure -- not free text -- is what makes
-    verify_claim_against_stats possible: there is an exact (metric_name, stated_value) pair to
-    check, not prose to parse."""
 
     metric_name: str
     stated_value: float
@@ -96,8 +85,6 @@ class DraftedClaim:
 
 @dataclass(frozen=True)
 class VerifiedClaim:
-    """Output of verify_claim_against_stats: whether the LLM's stated value actually matches the
-    real computed statistic, within tolerance."""
 
     metric_name: str
     stated_value: float
@@ -119,8 +106,6 @@ class VerifiedClaim:
 
 @dataclass(frozen=True)
 class ScoredClaim:
-    """A verified claim plus its confidence label/score, per CLAUDE.md §5.4: "Confidence scores
-    derive from effect size vs. variance/CI width"."""
 
     metric_name: str
     statement: str
