@@ -197,7 +197,7 @@ agent-orchestrator `:8001`, frontend-react `:4173` (`:5173` under
 
 ## Repository layout
 
-```
+```bash
 services/
 ├── gateway-go/          Go: auth, job submit/poll, WebSocket status
 ├── ml-engine-py/        Python/FastAPI: pipeline core + Celery tasks
