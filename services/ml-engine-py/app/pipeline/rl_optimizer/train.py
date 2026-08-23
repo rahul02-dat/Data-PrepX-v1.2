@@ -1,23 +1,3 @@
-"""
-Train the Phase 5 RL pipeline optimizer.
-
-Usage:
-    cd services/ml-engine-py
-    python3 -m app.pipeline.rl_optimizer.train --n-episodes 200
-
-By default this uses full_stack_reward_fn (per project decision -- see
-docs/adr/0005-rl-reward-cost.md for the cost tradeoff this implies). Each episode samples one
-dataset from the corpus, observes its meta-features as state, lets the agent pick a
-preprocessing action, and scores it with a full Phase 4 Optuna+stacking run. This is expensive:
-budget realistically for tens of minutes to hours per episode at production Optuna settings
-(see the ADR for the actual math) -- start with --n-trials and --cv-folds well below production
-defaults to get a training run to *finish* before scaling up.
-
-Pass --fast-surrogate to use fast_surrogate_reward_fn instead (a single untuned RandomForest),
-which is what makes it practical to test this script itself, or to do quick local RL-agent
-iteration, in minutes rather than hours/days.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -39,10 +19,8 @@ from app.pipeline.rl_optimizer.reward_functions import (
 from app.pipeline.rl_optimizer.state_discretization import discretize_state
 
 
-# Corpus of varied benchmark datasets (planner: "a corpus of varied benchmark datasets"),
-# each returned with injected missingness so the imputation half of the action space actually
-# matters. All are sklearn-bundled (no network access required).
 def _build_corpus(seed: int = 0) -> list[tuple[str, pd.DataFrame, np.ndarray, str]]:
+    """Construct benchmark datasets with injected missing values for RL training."""
     rng = np.random.default_rng(seed)
     corpus = []
 
@@ -70,18 +48,18 @@ def _build_corpus(seed: int = 0) -> list[tuple[str, pd.DataFrame, np.ndarray, st
         X = X.reset_index(drop=True)
         X_missing = X.mask(rng.random(X.shape) < 0.1)
         corpus.append(("california_housing_sample", X_missing, y, "regression"))
-    except Exception as exc:  # network-dependent fetch; degrade gracefully without it
+    except Exception as exc:
         print(f"skipping california_housing (fetch failed: {exc})", file=sys.stderr)
 
     return corpus
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description="RL pipeline optimizer training CLI")
     parser.add_argument("--n-episodes", type=int, default=50)
     parser.add_argument("--fast-surrogate", action="store_true")
     parser.add_argument(
-        "--n-trials", type=int, default=10, help="Optuna trials/family (full-stack reward only)."
+        "--n-trials", type=int, default=10, help="Optuna trials per family for full-stack reward."
     )
     parser.add_argument("--cv-folds", type=int, default=3)
     parser.add_argument("--stacking-cv-folds", type=int, default=3)
@@ -94,6 +72,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run RL optimizer training loop over benchmark dataset corpus."""
     args = _parse_args(argv if argv is not None else sys.argv[1:])
 
     corpus = _build_corpus(seed=args.seed)
@@ -101,15 +80,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.fast_surrogate:
         reward_fn = fast_surrogate_reward_fn(cv_folds=args.cv_folds, seed=args.seed)
-        print("Reward: fast_surrogate_reward_fn (RandomForest, single fast model)")
+        print("Reward: fast_surrogate_reward_fn (RandomForest)")
     else:
         config = OptunaSearchConfig(n_trials=args.n_trials, cv_folds=args.cv_folds, seed=args.seed)
         reward_fn = full_stack_reward_fn(
             config, stacking_cv_folds=args.stacking_cv_folds, seed=args.seed
         )
         print(
-            f"Reward: full_stack_reward_fn (n_trials={args.n_trials}, cv_folds={args.cv_folds}, "
-            f"stacking_cv_folds={args.stacking_cv_folds}) -- this is slow, see the ADR"
+            f"Reward: full_stack_reward_fn (n_trials={args.n_trials}, cv_folds={args.cv_folds})"
         )
 
     env = PreprocessingEnv(reward_fn, seed=args.seed)

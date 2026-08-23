@@ -11,10 +11,6 @@ from app.pipeline.validation_gates import DriftGate
 
 @dataclass(frozen=True)
 class MetaFeatures:
-    """RL state (CLAUDE.md §5.1): dataset meta-features the agent conditions its action on.
-    All fields are plain floats so the vector is trivially usable as a tabular-Q state key
-    (after binning, see environment.py) or as linear-function-approximation features."""
-
     missingness_rate: float
     mean_abs_skew: float
     mean_cardinality_ratio: float
@@ -22,6 +18,7 @@ class MetaFeatures:
     drift_score: float
 
     def as_array(self) -> np.ndarray:
+        """Convert meta-features into a numpy float array."""
         return np.array(
             [
                 self.missingness_rate,
@@ -34,6 +31,7 @@ class MetaFeatures:
         )
 
     def as_dict(self) -> dict[str, float]:
+        """Convert meta-features to dictionary representation."""
         return {
             "missingness_rate": self.missingness_rate,
             "mean_abs_skew": self.mean_abs_skew,
@@ -43,15 +41,15 @@ class MetaFeatures:
         }
 
 
-# Fraction of all cells that are missing, across the whole dataframe
 def _missingness_rate(df: pd.DataFrame) -> float:
+    """Calculate overall fraction of missing values in dataframe."""
     if df.size == 0:
         return 0.0
     return float(df.isna().sum().sum() / df.size)
 
 
-# Mean absolute skewness across numeric columns (0 for a dataset with no numeric columns)
 def _mean_abs_skew(df: pd.DataFrame) -> float:
+    """Calculate mean absolute skewness across numeric columns."""
     numeric = df.select_dtypes(include=[np.number])
     if numeric.shape[1] == 0:
         return 0.0
@@ -62,8 +60,8 @@ def _mean_abs_skew(df: pd.DataFrame) -> float:
     return float(skews.mean())
 
 
-# Mean (n_unique / n_rows) across categorical/object columns; 0 if there are none
 def _mean_cardinality_ratio(df: pd.DataFrame) -> float:
+    """Calculate mean cardinality ratio for categorical columns."""
     categorical = df.select_dtypes(exclude=[np.number])
     if categorical.shape[1] == 0 or len(df) == 0:
         return 0.0
@@ -71,9 +69,8 @@ def _mean_cardinality_ratio(df: pd.DataFrame) -> float:
     return float(np.mean(ratios))
 
 
-# max_class_count / min_class_count for a classification target; 1.0 (perfectly balanced) if
-# the target is absent, empty, or has fewer than 2 observed classes
 def class_imbalance_ratio(y: pd.Series | np.ndarray | None) -> float:
+    """Compute ratio of maximum to minimum class frequency for classification targets."""
     if y is None:
         return 1.0
     counts = pd.Series(y).dropna().value_counts()
@@ -82,9 +79,8 @@ def class_imbalance_ratio(y: pd.Series | np.ndarray | None) -> float:
     return float(counts.max() / counts.min())
 
 
-# Drift score vs. a reference distribution, reusing the Phase 2 DriftGate's PSI computation
-# directly rather than re-implementing it -- one drift definition for the whole project.
 def drift_score(df: pd.DataFrame, reference_df: pd.DataFrame | None) -> float:
+    """Compute distribution drift score against reference dataset using PSI."""
     if reference_df is None or len(reference_df) == 0:
         return 0.0
     gate = DriftGate(DriftGateConfig())
@@ -96,13 +92,13 @@ def drift_score(df: pd.DataFrame, reference_df: pd.DataFrame | None) -> float:
     return float(np.mean(psi_values)) if psi_values else 0.0
 
 
-# Compute the full RL state vector for a dataset (and optional target / drift reference)
 def compute_meta_features(
     df: pd.DataFrame,
     *,
     target: pd.Series | np.ndarray | None = None,
     reference_df: pd.DataFrame | None = None,
 ) -> MetaFeatures:
+    """Extract full statistical meta-feature vector from dataset."""
     return MetaFeatures(
         missingness_rate=_missingness_rate(df),
         mean_abs_skew=_mean_abs_skew(df),

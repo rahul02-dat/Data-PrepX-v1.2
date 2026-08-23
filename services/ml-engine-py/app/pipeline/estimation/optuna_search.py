@@ -36,9 +36,6 @@ class OptunaSearchConfig:
 
 @dataclass(frozen=True)
 class TrialRecord:
-    """One Optuna trial, shaped to map directly onto the `hyperparameters` lineage table
-    (CLAUDE.md §6: model_family, trial_number, params_json, score)."""
-
     model_family: str
     trial_number: int
     params: dict[str, Any]
@@ -55,21 +52,20 @@ class StudyResult:
     estimator: BaseEstimator | None = None
 
 
-# Cross-validation splitter appropriate to the task type
 def cv_splitter(task: TaskType, n_splits: int, seed: int):
+    """Return task-appropriate cross-validation splitter."""
     if task == "classification":
         return StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
     return KFold(n_splits=n_splits, shuffle=True, random_state=seed)
 
 
-# Scoring metric appropriate to the task type. Both directions are "higher is better":
-# sklearn negates RMSE so neg_root_mean_squared_error also maximizes.
 def scoring_for_task(task: TaskType) -> str:
+    """Return standard evaluation metric string for task type."""
     return "accuracy" if task == "classification" else "neg_root_mean_squared_error"
 
 
-# Suggest a hyperparameter set for the given model family and task
 def suggest_params(trial: optuna.Trial, family: ModelFamily, task: TaskType) -> dict[str, Any]:
+    """Suggest hyperparameter trial configuration for given model family and task."""
     if family == "random_forest":
         return {
             "n_estimators": trial.suggest_int("n_estimators", 50, 400),
@@ -109,10 +105,10 @@ def suggest_params(trial: optuna.Trial, family: ModelFamily, task: TaskType) -> 
     raise ValueError(f"unknown model family: {family!r}")
 
 
-# Construct an estimator instance for the given model family, task, and hyperparameters
 def build_estimator(
     family: ModelFamily, task: TaskType, params: dict[str, Any], seed: int
 ) -> BaseEstimator:
+    """Instantiate estimator with specified hyperparameters and seed."""
     if family == "random_forest":
         cls = RandomForestClassifier if task == "classification" else RandomForestRegressor
         return cls(random_state=seed, n_jobs=1, **params)
@@ -133,16 +129,12 @@ def build_estimator(
     raise ValueError(f"unknown model family: {family!r}")
 
 
-# Default (untuned) estimator for a family
 def default_estimator(family: ModelFamily, task: TaskType, seed: int) -> BaseEstimator:
-    if family == "linear":
-        params: dict[str, Any] = {}
-    else:
-        params = {}
+    """Build default untuned estimator instance."""
+    params: dict[str, Any] = {}
     return build_estimator(family, task, params, seed)
 
 
-# Run a single-model-family Optuna study: TPE sampler, median pruning, cross-validated objective
 def run_optuna_study(
     X: np.ndarray,
     y: np.ndarray,
@@ -150,6 +142,7 @@ def run_optuna_study(
     task: TaskType,
     config: OptunaSearchConfig | None = None,
 ) -> StudyResult:
+    """Execute Optuna hyperparameter optimization study for model family."""
     config = config or OptunaSearchConfig()
     splitter = cv_splitter(task, config.cv_folds, config.seed)
     scoring = scoring_for_task(task)
@@ -181,7 +174,6 @@ def run_optuna_study(
     )
 
 
-# Run one Optuna study per requested model family
 def run_all_families(
     X: np.ndarray,
     y: np.ndarray,
@@ -189,14 +181,15 @@ def run_all_families(
     families: tuple[ModelFamily, ...] | list[ModelFamily] | None = None,
     config: OptunaSearchConfig | None = None,
 ) -> dict[str, StudyResult]:
+    """Run Optuna HPO studies across all requested model families."""
     families = tuple(families) if families else _ALL_FAMILIES
     return {family: run_optuna_study(X, y, family, task, config) for family in families}
 
 
-# Cross-validated score of a family's untuned, default-hyperparameter estimator
 def default_baseline_score(
     X: np.ndarray, y: np.ndarray, family: ModelFamily, task: TaskType, config: OptunaSearchConfig
 ) -> float:
+    """Compute cross-validated baseline score for untuned model."""
     splitter = cv_splitter(task, config.cv_folds, config.seed)
     scoring = scoring_for_task(task)
     estimator = default_estimator(family, task, config.seed)

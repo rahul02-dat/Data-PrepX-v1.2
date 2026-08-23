@@ -11,9 +11,6 @@ from app.pipeline.rl_optimizer.state_discretization import StateKey
 
 @dataclass(frozen=True)
 class EpisodeRecord:
-    """One training episode, shaped to map directly onto the `rl_episodes` lineage table
-    (CLAUDE.md §5.1: "every episode (state, action, reward, resulting run_id) is persisted")."""
-
     episode_number: int
     state: StateKey
     action_index: int
@@ -22,14 +19,7 @@ class EpisodeRecord:
 
 
 class QLearningAgent:
-    """Tabular Q-learning with epsilon-greedy exploration (CLAUDE.md §5.1):
-    Q(s,a) <- Q(s,a) + alpha * [r + gamma * max_a' Q(s',a') - Q(s,a)].
-
-    Our environment (PreprocessingEnv) is single-step per episode, so next_state is always
-    None in this project's actual usage -- update() still accepts a next_state for
-    correctness/generality (and testability against the textbook multi-step formula), but the
-    terminal (next_state=None) path is what Phase 5 exercises end to end.
-    """
+    """Tabular Q-learning agent with epsilon-greedy exploration."""
 
     def __init__(
         self,
@@ -64,8 +54,8 @@ class QLearningAgent:
         )
         self.episodes: list[EpisodeRecord] = []
 
-    # Choose an action index via epsilon-greedy; ties broken uniformly at random, not by index
     def select_action(self, state: StateKey) -> int:
+        """Select action index using epsilon-greedy exploration strategy."""
         if self._rng.random() < self.epsilon:
             return int(self._rng.integers(len(self.actions)))
 
@@ -74,7 +64,6 @@ class QLearningAgent:
         best_actions = [a for a, v in q_values.items() if v == best_value]
         return int(self._rng.choice(best_actions))
 
-    # Apply the Q-learning update rule for one observed transition
     def update(
         self,
         state: StateKey,
@@ -82,6 +71,7 @@ class QLearningAgent:
         reward: float,
         next_state: StateKey | None = None,
     ) -> float:
+        """Update Q-value table using Bellman equation."""
         current_q = self.q_table[state][action_index]
         if next_state is None:
             target = reward
@@ -92,9 +82,8 @@ class QLearningAgent:
         self.q_table[state][action_index] = new_q
         return new_q
 
-    # Run one full single-step episode: select an action, apply it via step_fn, update Q,
-    # record the episode, and decay epsilon. step_fn takes (state, action) -> (reward, info).
     def run_episode(self, episode_number: int, state: StateKey, step_fn) -> EpisodeRecord:
+        """Execute single training episode and decay exploration rate."""
         action_index = self.select_action(state)
         action = self.actions[action_index]
         reward, _info = step_fn(state, action)
@@ -109,12 +98,11 @@ class QLearningAgent:
             epsilon_used=self.epsilon,
         )
         self.episodes.append(record)
-
         self.epsilon = max(self.min_epsilon, self.epsilon * self.epsilon_decay)
         return record
 
-    # Greedy (no exploration) action for a state -- used to read out the learned policy
     def best_action(self, state: StateKey) -> Action:
+        """Return greedy best action for given state according to Q-table."""
         q_values = self.q_table[state]
         best_index = max(q_values, key=q_values.get)
         return self.actions[best_index]

@@ -14,16 +14,10 @@ from app.pipeline.estimation.stacking import run_stacking
 from app.pipeline.rl_optimizer.environment import RewardFn
 
 
-# Production reward (per project decision): every episode calls the full Phase 4 Optuna+stacking
-# pipeline (4 model families, config.n_trials each, cross-validated) and uses the resulting
-# stack's CV score as the reward signal. This is the most accurate reward available, and the
-# most expensive -- see docs/adr/0005-rl-reward-cost.md for the actual per-episode cost this
-# implies and why it was chosen anyway. Do not use this for quick local iteration on the RL code
-# itself; use fast_surrogate_reward_fn for that (see below), and switch to this only for a real
-# training run.
 def full_stack_reward_fn(
     config: OptunaSearchConfig, *, stacking_cv_folds: int = 5, seed: int = 42
 ) -> RewardFn:
+    """Build reward function executing Bayesian HPO and stacked ensemble evaluation."""
     def _reward(X: np.ndarray, y: np.ndarray, task: TaskType) -> float:
         result = run_stacking(
             X, y, task, config=config, seed=seed, stacking_cv_folds=stacking_cv_folds
@@ -33,13 +27,8 @@ def full_stack_reward_fn(
     return _reward
 
 
-# The planner's explicitly recommended alternative (CLAUDE.md §5.1, planner Phase 5 Notes/Risks:
-# "Use a cheap surrogate metric ... during RL training, and only validate the final learned
-# policy against the full pipeline"). NOT the default -- provided so the two-tier design is at
-# least implemented and testable even though the project's current choice is full-stack-always.
-# A single untuned RandomForest with reduced cv is ~50x cheaper than full_stack_reward_fn per
-# the Phase 4 benchmark's own timing (see docs/research/optuna_stacking_benchmark.md).
 def fast_surrogate_reward_fn(*, cv_folds: int = 3, seed: int = 42) -> RewardFn:
+    """Build fast surrogate reward function evaluating a single random forest."""
     def _reward(X: np.ndarray, y: np.ndarray, task: TaskType) -> float:
         model = (
             RandomForestClassifier(n_estimators=50, random_state=seed, n_jobs=1)

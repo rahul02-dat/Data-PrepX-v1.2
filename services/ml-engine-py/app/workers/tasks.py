@@ -1,36 +1,13 @@
-"""
-Phase 8 Celery tasks — one per pipeline stage.
-
-Idempotency contract (CLAUDE.md §5.7):
-  Every task checks, via lineage.py, whether a pipeline_step row with the
-  same (run_id, step_type, input_hash) already exists before executing. If it
-  does, the task returns the recorded output_hash without re-running, so a
-  re-delivery after a worker crash cannot produce a duplicate lineage entry.
-
-Retry policy:
-  Transient failures (DB connectivity, HTTP timeouts to agent-orchestrator)
-  retry up to max_retries=3 with exponential backoff. Hard failures (gate
-  rejection, validation errors) raise without retry so the run is marked
-  "failed" immediately.
-
-Status transitions written to Postgres:
-  on_entry  → "running"
-  gate pass → "gate-check"
-  heavy work→ "optimizing"
-  done      → "done"
-  failed    → "failed"
-
-These map directly to the Status constants in gateway-go/internal/jobs/model.go
-and are what the Go gateway's polling loop converts to WebSocket messages.
-"""
-
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
 from typing import Any
 
 import httpx
+import numpy as np
 import pandas as pd
 import psycopg
 from celery import Task
@@ -42,10 +19,21 @@ from app.pipeline.config import (
     load_pipeline_config,
 )
 from app.pipeline.db import get_connection
+from app.pipeline.estimation.optuna_search import OptunaSearchConfig
+from app.pipeline.estimation.stacking import run_stacking
 from app.pipeline.hashing import hash_dataframe, hash_source
 from app.pipeline.imputation import impute
 from app.pipeline.lineage import LineageRecorder
+from app.pipeline.meta_learning.adaptive_loop import AdaptiveState, run_adaptive_step
+from app.pipeline.meta_learning.maml import MAMLLearner
 from app.pipeline.outliers import detect_outliers
+from app.pipeline.rl_optimizer.environment import PreprocessingEnv, build_action_space
+from app.pipeline.rl_optimizer.q_learning import QLearningAgent
+from app.pipeline.rl_optimizer.reward_functions import (
+    fast_surrogate_reward_fn,
+    full_stack_reward_fn,
+)
+from app.pipeline.rl_optimizer.state_discretization import discretize_state
 from app.pipeline.validation_gates import (
     DriftGate,
     MaxNullRateGate,
@@ -56,16 +44,17 @@ from app.workers.celery_app import celery_app
 
 log = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 _AGENT_ORCHESTRATOR_URL = os.environ.get("AGENT_ORCHESTRATOR_URL", "http://localhost:8001")
 _SUMMARIZER_TIMEOUT_S = int(os.environ.get("SUMMARIZER_TIMEOUT_S", "120"))
 
 
+def _backoff(retries: int, base: int = 5) -> int:
+    """Calculate exponential backoff delay in seconds."""
+    return base * (2**retries)
+
+
 def _update_run_status(conn: psycopg.Connection, run_id: str, status: str) -> None:
-    """Write a status transition to Postgres. Called at task entry and exit."""
+    """Update runs row status in Postgres."""
     with conn.cursor() as cur:
         cur.execute(
             "UPDATE runs SET status = %s, updated_at = now() WHERE id = %s",
@@ -80,13 +69,7 @@ def _step_exists(
     step_type: str,
     input_hash: str,
 ) -> str | None:
-    """Return the recorded output_hash if this step already executed, else None.
-
-    This is the idempotency gate: if a worker is killed and the task is
-    re-delivered, we find the existing row and return early without rerunning
-    the (potentially expensive) pipeline stage or writing a duplicate lineage
-    row.
-    """
+    """Check if pipeline step has already been recorded for idempotency."""
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -98,11 +81,6 @@ def _step_exists(
         )
         row = cur.fetchone()
     return row[0] if row else None
-
-
-# ---------------------------------------------------------------------------
-# Validation-gates task
-# ---------------------------------------------------------------------------
 
 
 @celery_app.task(
@@ -121,20 +99,7 @@ def run_validation_gates(
     reference_rows: list[dict] | None = None,
     reference_columns: list[str] | None = None,
 ) -> dict[str, Any]:
-    """
-    Run the Phase 2 gate chain against a dataset and record the result in lineage.
-
-    Parameters
-    ----------
-    run_id:
-        The Postgres runs.id for this pipeline run.
-    dataset_rows / dataset_columns:
-        The dataset serialised as a list-of-dicts (JSON-safe). Celery tasks must
-        be JSON-serialisable; DataFrames are not, so we reconstruct them here.
-    reference_rows / reference_columns:
-        Optional reference distribution for the DriftGate. If absent, the drift
-        gate is skipped (first-run baseline is the dataset itself — see ADR 0002).
-    """
+    """Execute dataset validation gate chain and record lineage."""
     log.info("run_validation_gates: run_id=%s", run_id)
     try:
         conn = get_connection()
@@ -147,14 +112,9 @@ def run_validation_gates(
         df = pd.DataFrame(dataset_rows, columns=dataset_columns)
         input_hash = hash_dataframe(df)
 
-        # Idempotency check
         existing = _step_exists(conn, run_id, "validation_gates", input_hash)
         if existing is not None:
-            log.info(
-                "run_validation_gates: idempotent skip (run_id=%s, output_hash=%s)",
-                run_id,
-                existing,
-            )
+            log.info("run_validation_gates: idempotent skip run_id=%s", run_id)
             _update_run_status(conn, run_id, "gate-check")
             return {"status": "skipped", "output_hash": existing, "passed": True}
 
@@ -175,24 +135,12 @@ def run_validation_gates(
 
         if not gate_result.passed:
             _update_run_status(conn, run_id, "failed")
-            # Hard failure — do not retry; gate rejection is deterministic.
             failures = [{"gate": r.gate_name, "reason": r.reason} for r in gate_result.failures]
-            log.warning(
-                "run_validation_gates: gate REJECTED run_id=%s failures=%s",
-                run_id,
-                failures,
-            )
-            # Raise Ignore so Celery marks the task SUCCESS (we already wrote the
-            # terminal state to Postgres) and downstream chord callbacks fire with
-            # the rejection payload rather than an unhandled exception.
-            self.update_state(
-                state="FAILURE",
-                meta={"run_id": run_id, "gate_failures": failures},
-            )
+            log.warning("run_validation_gates: gate REJECTED run_id=%s failures=%s", run_id, failures)
+            self.update_state(state="FAILURE", meta={"run_id": run_id, "gate_failures": failures})
             raise Ignore()
 
-        # Record a pipeline_step for the gate-check so replay can verify it.
-        output_hash = hash_dataframe(df)  # gates don't transform data
+        output_hash = hash_dataframe(df)
         recorder.record_pipeline_step(
             run_id,
             step_type="validation_gates",
@@ -206,8 +154,6 @@ def run_validation_gates(
 
         _update_run_status(conn, run_id, "gate-check")
         conn.commit()
-
-        log.info("run_validation_gates: PASSED run_id=%s", run_id)
         return {
             "status": "done",
             "output_hash": output_hash,
@@ -229,11 +175,6 @@ def run_validation_gates(
         conn.close()
 
 
-# ---------------------------------------------------------------------------
-# Imputation task
-# ---------------------------------------------------------------------------
-
-
 @celery_app.task(
     name="app.workers.tasks.run_imputation",
     bind=True,
@@ -250,7 +191,7 @@ def run_imputation(
     method: str = "mice",
     seed: int = 42,
 ) -> dict[str, Any]:
-    """Impute missing values (MICE or KNN) and record the step in lineage."""
+    """Execute MICE or KNN missing value imputation on dataset."""
     log.info("run_imputation: run_id=%s method=%s", run_id, method)
     try:
         conn = get_connection()
@@ -266,19 +207,13 @@ def run_imputation(
         existing = _step_exists(conn, run_id, "imputation", input_hash)
         if existing is not None:
             log.info("run_imputation: idempotent skip run_id=%s", run_id)
-            # Reconstruct the output from the step record (we don't have the
-            # actual transformed bytes, so we pass the original df through again
-            # with the same deterministic config). In practice the imputedfn is
-            # deterministic given the same seed.
             cfg = ImputationConfig(method=method)
             result = impute(df, cfg, seed=seed)
-            out_rows = result.dataframe.to_dict(orient="records")
-            out_cols = list(result.dataframe.columns)
             return {
                 "status": "skipped",
                 "output_hash": existing,
-                "dataset_rows": out_rows,
-                "dataset_columns": out_cols,
+                "dataset_rows": result.dataframe.to_dict(orient="records"),
+                "dataset_columns": list(result.dataframe.columns),
             }
 
         cfg = ImputationConfig(method=method)
@@ -298,7 +233,6 @@ def run_imputation(
         )
 
         conn.commit()
-        log.info("run_imputation: DONE run_id=%s output_hash=%s", run_id, output_hash)
         return {
             "status": "done",
             "output_hash": output_hash,
@@ -311,11 +245,6 @@ def run_imputation(
         raise self.retry(exc=exc, countdown=_backoff(self.request.retries))
     finally:
         conn.close()
-
-
-# ---------------------------------------------------------------------------
-# Outlier detection task
-# ---------------------------------------------------------------------------
 
 
 @celery_app.task(
@@ -334,7 +263,7 @@ def run_outlier_detection(
     method: str = "isolation_forest",
     seed: int = 42,
 ) -> dict[str, Any]:
-    """Score each row for anomalies (IsolationForest or LOF) and record in lineage."""
+    """Execute IsolationForest or LOF outlier detection on numeric features."""
     log.info("run_outlier_detection: run_id=%s method=%s", run_id, method)
     try:
         conn = get_connection()
@@ -376,11 +305,6 @@ def run_outlier_detection(
         )
 
         conn.commit()
-        log.info(
-            "run_outlier_detection: DONE run_id=%s n_flagged=%d",
-            run_id,
-            result.diagnostics.get("n_flagged", 0),
-        )
         return {
             "status": "done",
             "output_hash": output_hash,
@@ -396,19 +320,12 @@ def run_outlier_detection(
         conn.close()
 
 
-# ---------------------------------------------------------------------------
-# Estimation task (Optuna HPO + stacking)
-# ---------------------------------------------------------------------------
-
-
 @celery_app.task(
     name="app.workers.tasks.run_estimation",
     bind=True,
     max_retries=2,
     default_retry_delay=30,
     acks_late=True,
-    # Estimation is CPU-heavy; give it a 4-hour soft time limit before Celery
-    # sends SIGTERM and the hard limit sends SIGKILL.
     soft_time_limit=14400,
     time_limit=14700,
 )
@@ -425,7 +342,7 @@ def run_estimation(
     cv_folds: int = 5,
     stacking_cv_folds: int = 5,
 ) -> dict[str, Any]:
-    """Run Phase 4 Bayesian HPO + stacked ensemble and record all trials in lineage."""
+    """Execute Optuna HPO and stacked ensemble training."""
     log.info("run_estimation: run_id=%s task_type=%s n_trials=%d", run_id, task_type, n_trials)
     try:
         conn = get_connection()
@@ -445,9 +362,6 @@ def run_estimation(
 
         X = df.drop(columns=[target_column])
         y = df[target_column].to_numpy()
-
-        from app.pipeline.estimation.optuna_search import OptunaSearchConfig
-        from app.pipeline.estimation.stacking import run_stacking
 
         cfg = OptunaSearchConfig(n_trials=n_trials, cv_folds=cv_folds, seed=seed)
         result = run_stacking(
@@ -473,7 +387,7 @@ def run_estimation(
             value=result.single_best_cv_score,
         )
 
-        output_hash = hash_dataframe(X)  # input to estimation step
+        output_hash = hash_dataframe(X)
         recorder.record_pipeline_step(
             run_id,
             step_type="estimation",
@@ -496,12 +410,6 @@ def run_estimation(
 
         _update_run_status(conn, run_id, "done")
         conn.commit()
-
-        log.info(
-            "run_estimation: DONE run_id=%s stack_score=%.4f",
-            run_id,
-            result.stacking_cv_score,
-        )
         return {
             "status": "done",
             "output_hash": output_hash,
@@ -518,11 +426,6 @@ def run_estimation(
         raise self.retry(exc=exc, countdown=_backoff(self.request.retries))
     finally:
         conn.close()
-
-
-# ---------------------------------------------------------------------------
-# RL episode task (single episode, idempotent by episode_number)
-# ---------------------------------------------------------------------------
 
 
 @celery_app.task(
@@ -547,16 +450,7 @@ def run_rl_episode(
     fast_surrogate: bool = True,
     q_table: dict[str, list[float]] | None = None,
 ) -> dict[str, Any]:
-    """
-    Run a single RL episode: observe state, pick action, compute reward, update Q-table.
-
-    The Q-table is passed in as a JSON-serialisable dict so the chain can thread it
-    between episodes without shared state. Each episode returns the updated Q-table
-    so callers can checkpoint it to Postgres or pass it to the next episode task.
-
-    fast_surrogate=True (default) uses a single-fold RandomForest reward (seconds per
-    episode); set False for the full Optuna+stacking reward (minutes/hours per episode).
-    """
+    """Execute single RL training episode for preprocessing optimization."""
     log.info("run_rl_episode: run_id=%s episode=%d", run_id, episode_number)
     try:
         conn = get_connection()
@@ -564,18 +458,13 @@ def run_rl_episode(
         raise self.retry(exc=exc, countdown=_backoff(self.request.retries))
 
     try:
-        # Idempotency: if this episode was already recorded, skip it.
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT id FROM rl_episodes WHERE run_id = %s AND episode_number = %s",
                 (run_id, episode_number),
             )
             if cur.fetchone():
-                log.info(
-                    "run_rl_episode: idempotent skip run_id=%s episode=%d",
-                    run_id,
-                    episode_number,
-                )
+                log.info("run_rl_episode: idempotent skip run_id=%s episode=%d", run_id, episode_number)
                 return {
                     "status": "skipped",
                     "episode_number": episode_number,
@@ -584,17 +473,7 @@ def run_rl_episode(
 
         df = pd.DataFrame(dataset_rows, columns=dataset_columns)
         X = df.drop(columns=[target_column])
-        y_series = df[target_column]
-        y = y_series.to_numpy()
-
-        from app.pipeline.estimation.optuna_search import OptunaSearchConfig
-        from app.pipeline.rl_optimizer.environment import PreprocessingEnv, build_action_space
-        from app.pipeline.rl_optimizer.q_learning import QLearningAgent
-        from app.pipeline.rl_optimizer.reward_functions import (
-            fast_surrogate_reward_fn,
-            full_stack_reward_fn,
-        )
-        from app.pipeline.rl_optimizer.state_discretization import discretize_state
+        y = df[target_column].to_numpy()
 
         if fast_surrogate:
             reward_fn = fast_surrogate_reward_fn(cv_folds=3, seed=seed)
@@ -612,7 +491,6 @@ def run_rl_episode(
             epsilon_decay=0.98,
             seed=seed,
         )
-        # Restore Q-table state from previous episode(s)
         if q_table:
             agent.q_table = {k: list(v) for k, v in q_table.items()}
 
@@ -625,7 +503,6 @@ def run_rl_episode(
 
         record = agent.run_episode(episode_number, state_key, step_fn)
 
-        # Persist the episode to lineage
         recorder = LineageRecorder(conn)
         action = actions[record.action_index]
         recorder.record_rl_episode(
@@ -637,12 +514,6 @@ def run_rl_episode(
         )
 
         conn.commit()
-        log.info(
-            "run_rl_episode: DONE run_id=%s episode=%d reward=%.4f",
-            run_id,
-            episode_number,
-            record.reward,
-        )
         return {
             "status": "done",
             "episode_number": episode_number,
@@ -655,11 +526,6 @@ def run_rl_episode(
         raise self.retry(exc=exc, countdown=_backoff(self.request.retries))
     finally:
         conn.close()
-
-
-# ---------------------------------------------------------------------------
-# MAML adaptation task
-# ---------------------------------------------------------------------------
 
 
 @celery_app.task(
@@ -683,13 +549,7 @@ def run_maml_adaptation(
     task_type: str,
     seed: int = 42,
 ) -> dict[str, Any]:
-    """
-    Run one step of the Phase 6 adaptive loop on a new data batch.
-
-    Checks for drift vs. the reference distribution; if drift is detected,
-    runs genetic feature selection + MAML fast-adaptation. Returns a status
-    dict with drift_detected and the adaptation diagnostics.
-    """
+    """Execute drift check and MAML fast-adaptation step on data batch."""
     log.info("run_maml_adaptation: run_id=%s", run_id)
     try:
         conn = get_connection()
@@ -705,11 +565,6 @@ def run_maml_adaptation(
         if existing is not None:
             log.info("run_maml_adaptation: idempotent skip run_id=%s", run_id)
             return {"status": "skipped", "output_hash": existing}
-
-        import numpy as np
-
-        from app.pipeline.meta_learning.adaptive_loop import AdaptiveState, run_adaptive_step
-        from app.pipeline.meta_learning.maml import MAMLLearner
 
         X_ref_num = ref_df.select_dtypes(include="number").to_numpy(dtype=float)
         n_features = X_ref_num.shape[1]
@@ -759,12 +614,6 @@ def run_maml_adaptation(
         )
 
         conn.commit()
-        log.info(
-            "run_maml_adaptation: DONE run_id=%s drift=%s adapted=%s",
-            run_id,
-            step_result.drift_detected,
-            step_result.adapted_this_step,
-        )
         return {
             "status": "done",
             "output_hash": output_hash,
@@ -778,11 +627,6 @@ def run_maml_adaptation(
         raise self.retry(exc=exc, countdown=_backoff(self.request.retries))
     finally:
         conn.close()
-
-
-# ---------------------------------------------------------------------------
-# Summarizer task (calls agent-orchestrator via HTTP)
-# ---------------------------------------------------------------------------
 
 
 @celery_app.task(
@@ -799,17 +643,7 @@ def run_summarizer(
     run_id: str,
     metrics: list[dict],
 ) -> dict[str, Any]:
-    """
-    Call agent-orchestrator /summarize synchronously and record the report in Postgres.
-
-    The Celery worker thread blocks on the HTTP call (up to SUMMARIZER_TIMEOUT_S seconds).
-    This is acceptable for Phase 8: summarisation is cheap relative to estimation and
-    only one task runs at a time. A future async/fire-and-forget design is a Phase 11
-    concern (see implementation_plan.md Q3).
-
-    CLAUDE.md §2: agent-orchestrator receives only pre-computed statistics, never raw data.
-    We send the metrics list, not a DataFrame.
-    """
+    """Invoke agent-orchestrator summarizer service and persist report in lineage."""
     log.info("run_summarizer: run_id=%s n_metrics=%d", run_id, len(metrics))
     try:
         conn = get_connection()
@@ -832,27 +666,18 @@ def run_summarizer(
             resp.raise_for_status()
             report = resp.json()
         except httpx.HTTPStatusError as exc:
-            log.error(
-                "run_summarizer: agent-orchestrator returned %d for run_id=%s",
-                exc.response.status_code,
-                run_id,
-            )
+            log.error("run_summarizer: orchestrator status %d for run %s", exc.response.status_code, run_id)
             raise self.retry(exc=exc, countdown=_backoff(self.request.retries))
         except httpx.RequestError as exc:
             raise self.retry(exc=exc, countdown=_backoff(self.request.retries))
 
-        import hashlib
-        import json
-
-        output_hash = (
-            "sha256:" + hashlib.sha256(json.dumps(report, sort_keys=True).encode()).hexdigest()
-        )
+        output_hash = "sha256:" + hashlib.sha256(json.dumps(report, sort_keys=True).encode()).hexdigest()
 
         recorder = LineageRecorder(conn)
         recorder.record_pipeline_step(
             run_id,
             step_type="summarizer",
-            input_hash=run_id,  # keyed on run_id (metrics derive from it)
+            input_hash=run_id,
             output_hash=output_hash,
             params={"n_metrics": len(metrics)},
             seed=None,
@@ -871,20 +696,9 @@ def run_summarizer(
         )
 
         conn.commit()
-        log.info("run_summarizer: DONE run_id=%s output_hash=%s", run_id, output_hash)
         return {"status": "done", "output_hash": output_hash, "run_id": run_id, "report": report}
     except Exception as exc:
         log.exception("run_summarizer: error run_id=%s", run_id)
         raise self.retry(exc=exc, countdown=_backoff(self.request.retries))
     finally:
         conn.close()
-
-
-# ---------------------------------------------------------------------------
-# Shared retry backoff helper
-# ---------------------------------------------------------------------------
-
-
-def _backoff(retries: int, base: int = 5) -> int:
-    """Exponential backoff: 5s, 10s, 20s for retries 0, 1, 2."""
-    return base * (2**retries)

@@ -36,7 +36,6 @@ class LineageRecorder:
     def __init__(self, conn: psycopg.Connection):
         self._conn = conn
 
-    # Register dataset by content hash
     def register_dataset(
         self,
         df: pd.DataFrame,
@@ -44,6 +43,7 @@ class LineageRecorder:
         *,
         reference_dataset_id: str | None = None,
     ) -> tuple[str, str]:
+        """Register dataset content hash and schema in database."""
         content_hash = hash_dataframe(df)
         with self._conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
@@ -61,7 +61,6 @@ class LineageRecorder:
                 row = cur.fetchone()
             return str(row["id"]), content_hash
 
-    # Idempotent run creation keyed on run_key
     def get_or_create_run(
         self,
         *,
@@ -70,6 +69,7 @@ class LineageRecorder:
         config: PipelineConfig,
         git_sha: str,
     ) -> tuple[str, str, bool]:
+        """Get existing run or create new run row keyed on deterministic run_key."""
         config_dict = config.as_dict()
         config_hash_value = hash_config(config_dict)
         run_key = compute_run_key(dataset_content_hash, config_hash_value, git_sha)
@@ -91,15 +91,11 @@ class LineageRecorder:
             cur.execute("SELECT id FROM runs WHERE run_key = %s", (run_key,))
             row = cur.fetchone()
             if row is None:
-                raise RuntimeError(
-                    f"run_key {run_key} conflicted on insert but no row found on lookup; "
-                    "this indicates a concurrent transaction issue, not expected in "
-                    "single-writer use."
-                )
+                raise RuntimeError(f"run_key {run_key} conflicted on insert but no row found on lookup")
             return str(row["id"]), run_key, False
 
-    # Persist gate results and audit log
     def record_gate_chain(self, run_id: str, gate_chain: GateChainResult) -> None:
+        """Persist gate evaluation results and write audit log entry."""
         with self._conn.cursor() as cur:
             for result in gate_chain.results:
                 cur.execute(
@@ -131,7 +127,6 @@ class LineageRecorder:
                 ("gate-check" if gate_chain.passed else "failed", run_id),
             )
 
-    # Record pipeline DAG step
     def record_pipeline_step(
         self,
         run_id: str,
@@ -144,6 +139,7 @@ class LineageRecorder:
         transform_code_hash: str,
         description: str | None = None,
     ) -> str:
+        """Record executed pipeline step and transformation code hash."""
         with self._conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 """
@@ -171,8 +167,6 @@ class LineageRecorder:
             )
             return step_id
 
-    # Persist one Optuna trial row (Phase 4). One row per (run, model_family, trial_number),
-    # matching the `hyperparameters` table shape exactly (CLAUDE.md §6).
     def record_hyperparameter_trial(
         self,
         run_id: str,
@@ -182,6 +176,7 @@ class LineageRecorder:
         params: dict[str, Any],
         score: float | None,
     ) -> str:
+        """Persist hyperparameter trial configuration and evaluation score."""
         with self._conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 """
@@ -193,9 +188,8 @@ class LineageRecorder:
             )
             return str(cur.fetchone()["id"])
 
-    # Bulk-persist every trial from a Phase 4 StudyResult.trials list in one call, so a caller
-    # doesn't have to loop record_hyperparameter_trial itself for every family it searched.
     def record_study_trials(self, run_id: str, trials: list[Any]) -> list[str]:
+        """Record all trials from an Optuna study in bulk."""
         return [
             self.record_hyperparameter_trial(
                 run_id,
@@ -207,8 +201,6 @@ class LineageRecorder:
             for trial in trials
         ]
 
-    # Persist a named metric with optional confidence interval bounds (CLAUDE.md §6 `metrics`
-    # table). Used for the stack's final CV score, the single-best-family score, etc.
     def record_metric(
         self,
         run_id: str,
@@ -218,6 +210,7 @@ class LineageRecorder:
         ci_low: float | None = None,
         ci_high: float | None = None,
     ) -> str:
+        """Record named evaluation metric with optional confidence interval bounds."""
         with self._conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 """
@@ -229,10 +222,6 @@ class LineageRecorder:
             )
             return str(cur.fetchone()["id"])
 
-    # Persist a Phase 5 RL episode: state, action, reward, and the run_id the reward's
-    # estimation run produced (CLAUDE.md §5.1: "every episode (state, action, reward, resulting
-    # run_id) is persisted for offline analysis"). run_id may be NULL when the episode used a
-    # surrogate reward that never produced a full lineage-tracked run.
     def record_rl_episode(
         self,
         *,
@@ -242,6 +231,7 @@ class LineageRecorder:
         reward: float,
         run_id: str | None,
     ) -> str:
+        """Record RL agent episode state, action, and reward."""
         with self._conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 """
@@ -259,8 +249,8 @@ class LineageRecorder:
             )
             return str(cur.fetchone()["id"])
 
-    # Fetch recorded run execution details
     def replay_run(self, run_id: str) -> ReplayRecord:
+        """Fetch recorded run lineage and pipeline steps for audit/replay."""
         with self._conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 "SELECT id, dataset_id, git_sha, config_hash, run_key FROM runs WHERE id = %s",
@@ -301,8 +291,8 @@ class LineageRecorder:
         )
 
 
-# Verify step reproducibility against output hash
 def verify_output_hash(recorded_output_hash: str | None, recomputed_hash: str) -> bool:
+    """Verify reproducibility by comparing recorded output hash to recomputed hash."""
     if recorded_output_hash is None:
         return False
     return recorded_output_hash == recomputed_hash

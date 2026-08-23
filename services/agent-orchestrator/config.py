@@ -6,15 +6,9 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class SummarizerConfig:
-    # Below this relative CI width, a claim is "high" confidence.
     high_confidence_max_relative_ci_width: float = 0.15
-    # Above this relative CI width, a claim is "inconclusive" and must be flagged, never
-    # asserted as fact (CLAUDE.md §5.4: "near-threshold findings are explicitly flagged").
     inconclusive_min_relative_ci_width: float = 0.40
-    # Relative tolerance allowed between the LLM's stated numeric value and the actual computed
-    # statistic before verify_claim_against_stats rejects the claim outright.
     verification_relative_tolerance: float = 0.02
-    # Ollama model used for the draft_claim node. See docs/adr/0007-ollama-model-choice.md.
     ollama_model: str = "llama3.1:8b-instruct-q4_K_M"
     ollama_url: str = "http://localhost:11434"
     ollama_timeout_seconds: float = 30.0
@@ -34,6 +28,7 @@ class SummarizerConfig:
 
 
 def load_summarizer_config() -> SummarizerConfig:
+    """Load summarizer configuration from environment variables."""
     return SummarizerConfig(
         ollama_model=os.environ.get("SUMMARIZER_OLLAMA_MODEL", SummarizerConfig.ollama_model),
         ollama_url=os.environ.get("OLLAMA_URL", SummarizerConfig.ollama_url),

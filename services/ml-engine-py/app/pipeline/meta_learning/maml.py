@@ -15,11 +15,6 @@ ParamDict = dict[str, torch.Tensor]
 
 @dataclass(frozen=True)
 class Task:
-    """One meta-learning task: a historical data batch split into a support set (used for
-    inner-loop adaptation) and a query set (used to score that adaptation for the outer-loop
-    meta-update). CLAUDE.md §5.2: "outer loop meta-learns an initialization ... across a
-    distribution of historical data-batch 'tasks'"."""
-
     X_support: np.ndarray
     y_support: np.ndarray
     X_query: np.ndarray
@@ -27,19 +22,12 @@ class Task:
 
 
 def _to_tensor(arr: np.ndarray, dtype: torch.dtype = torch.float32) -> torch.Tensor:
+    """Convert numpy array to torch tensor."""
     return torch.as_tensor(np.asarray(arr), dtype=dtype)
 
 
 class MAMLLearner:
-    """MAML over a small/linear or shallow-MLP head only (CLAUDE.md §5.2: "Scope the target
-    model small ... MAML over gradient-boosted trees is not standard and is out of scope").
-
-    Parameters are a plain dict of leaf tensors rather than an nn.Module, so the inner loop can
-    be expressed functionally (forward(x, params)) and differentiated through with
-    create_graph=True. That is what lets the outer loop's query loss backpropagate through the
-    inner-loop adaptation steps themselves -- the actual "meta" part of MAML, as opposed to
-    ordinary multi-task pretraining.
-    """
+    """Model-Agnostic Meta-Learning learner for fast adaptation."""
 
     def __init__(
         self,
@@ -63,8 +51,8 @@ class MAMLLearner:
             list(self.meta_params.values()), lr=self.config.outer_lr
         )
 
-    # Initialize meta-parameters: a linear head (hidden_dim=0) or one ReLU hidden layer
     def _init_params(self) -> ParamDict:
+        """Initialize meta-learning parameters for linear or single hidden layer model."""
         params: ParamDict = {}
         if self.config.hidden_dim > 0:
             params["w1"] = self._init_weight(self.config.hidden_dim, self.input_dim)
@@ -76,8 +64,8 @@ class MAMLLearner:
             params["b1"] = torch.zeros(self.output_dim, requires_grad=True)
         return params
 
-    # Kaiming-uniform-initialized weight matrix, seeded via self._generator for determinism
     def _init_weight(self, out_features: int, in_features: int) -> torch.Tensor:
+        """Initialize weight tensor using uniform initialization."""
         w = torch.empty(out_features, in_features)
         bound = (1.0 / in_features) ** 0.5
         with torch.no_grad():
@@ -85,25 +73,19 @@ class MAMLLearner:
         w.requires_grad_(True)
         return w
 
-    # Functional forward pass through an arbitrary parameter dict (not necessarily
-    # self.meta_params) -- this is what lets the inner loop evaluate "what would the
-    # currently-adapted model predict" without mutating the meta-parameters in place.
     def forward(self, x: torch.Tensor, params: ParamDict) -> torch.Tensor:
+        """Compute functional forward pass using given parameter dictionary."""
         if "w2" in params:
             hidden = F.relu(F.linear(x, params["w1"], params["b1"]))
             return F.linear(hidden, params["w2"], params["b2"])
         return F.linear(x, params["w1"], params["b1"])
 
-    # Task-appropriate loss: cross-entropy for classification, MSE for regression
     def _loss(self, preds: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        """Compute loss function based on task type (cross-entropy or MSE)."""
         if self.task_type == "classification":
             return F.cross_entropy(preds, y.long())
         return F.mse_loss(preds.squeeze(-1), y.float())
 
-    # Run n_steps of inner-loop gradient descent from `params`, returning the adapted dict.
-    # create_graph=True keeps the adaptation differentiable w.r.t. the starting params (needed
-    # by the outer loop); adapt() sets create_graph=False since nothing backprops through a
-    # post-meta-training fast-adaptation call.
     def _inner_adapt(
         self,
         params: ParamDict,
@@ -113,6 +95,7 @@ class MAMLLearner:
         *,
         create_graph: bool,
     ) -> ParamDict:
+        """Execute inner-loop gradient adaptation steps."""
         adapted = dict(params)
         for _ in range(n_steps):
             preds = self.forward(X, adapted)
@@ -124,13 +107,8 @@ class MAMLLearner:
             }
         return adapted
 
-    # Outer-loop meta-training over a distribution of historical tasks (CLAUDE.md §5.2). Each
-    # outer step samples meta_batch_size tasks, inner-adapts the current meta_params to each
-    # task's support set, scores that adaptation on the task's query set, and updates
-    # meta_params to minimize the mean query loss -- this optimizes for fast adaptability, not
-    # just average performance across tasks. Returns the per-step mean query loss for
-    # diagnostics/convergence checks.
     def meta_train(self, tasks: list[Task]) -> list[float]:
+        """Execute outer-loop meta-training over distribution of tasks."""
         if not tasks:
             raise ValueError("meta_train requires at least one task")
 
@@ -161,11 +139,8 @@ class MAMLLearner:
 
         return query_loss_history
 
-    # Fast-adapt the current meta-parameters to a brand-new data batch (CLAUDE.md §5.2: "inner
-    # loop does a few gradient steps to adapt to each new batch instead of retraining from
-    # scratch"). This is what adaptive_loop.py calls on drift-flagged batches. Detached from
-    # self.meta_params first so this call never mutates the meta-parameters themselves.
     def adapt(self, X: np.ndarray, y: np.ndarray, *, n_steps: int | None = None) -> ParamDict:
+        """Fast-adapt meta-parameters to a specific dataset batch."""
         steps = n_steps if n_steps is not None else self.config.adapt_steps
         X_t, y_t = _to_tensor(X), _to_tensor(y)
         start_params = {
@@ -175,8 +150,8 @@ class MAMLLearner:
         adapted = self._inner_adapt(start_params, X_t, y_t, steps, create_graph=False)
         return {name: value.detach() for name, value in adapted.items()}
 
-    # Predict with a given (typically adapted) parameter dict, defaulting to the meta-params
     def predict(self, X: np.ndarray, params: ParamDict | None = None) -> np.ndarray:
+        """Generate predictions for feature matrix using given parameters."""
         params = params if params is not None else self.meta_params
         X_t = _to_tensor(X)
         with torch.no_grad():

@@ -7,9 +7,6 @@ import numpy as np
 
 from app.pipeline.config import GeneticSelectorConfig
 
-# fitness_fn(X, y, mask) -> validation score; higher is better. `mask` is a boolean array of
-# shape (n_features,) selecting which columns of X to use. CLAUDE.md §5.2: "population of
-# feature subsets, fitness = validation metric, standard GA operators."
 FitnessFn = Callable[[np.ndarray, np.ndarray, np.ndarray], float]
 
 
@@ -28,12 +25,11 @@ class GeneticSelectionResult:
     history: list[GenerationRecord] = field(default_factory=list)
 
 
-# Draw a random boolean mask with at least min_features True entries
 def _random_mask(n_features: int, min_features: int, rng: np.random.Generator) -> np.ndarray:
+    """Generate random boolean feature mask with at least min_features active."""
     if min_features > n_features:
         raise ValueError(
-            f"min_features={min_features} exceeds the number of available features "
-            f"({n_features})"
+            f"min_features={min_features} exceeds available features ({n_features})"
         )
     while True:
         mask = rng.random(n_features) < 0.5
@@ -41,28 +37,28 @@ def _random_mask(n_features: int, min_features: int, rng: np.random.Generator) -
             return mask
 
 
-# Tournament selection: sample tournament_size individuals, return the fittest
 def _tournament_select(
     population: list[np.ndarray],
     fitnesses: np.ndarray,
     tournament_size: int,
     rng: np.random.Generator,
 ) -> np.ndarray:
+    """Select highest fitness individual from random tournament sample."""
     idx = rng.integers(0, len(population), size=tournament_size)
     best_idx = idx[np.argmax(fitnesses[idx])]
     return population[int(best_idx)].copy()
 
 
-# Uniform crossover: each gene independently taken from one parent or the other
 def _crossover(parent_a: np.ndarray, parent_b: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """Perform uniform crossover between two parent masks."""
     take_a = rng.random(len(parent_a)) < 0.5
     return np.where(take_a, parent_a, parent_b)
 
 
-# Bit-flip mutation, rejected (parent returned unchanged) if it would violate min_features
 def _mutate(
     individual: np.ndarray, mutation_rate: float, min_features: int, rng: np.random.Generator
 ) -> np.ndarray:
+    """Apply bit-flip mutation ensuring min_features constraint is preserved."""
     flip = rng.random(len(individual)) < mutation_rate
     mutated = np.where(flip, ~individual, individual)
     if mutated.sum() < min_features:
@@ -70,9 +66,6 @@ def _mutate(
     return mutated
 
 
-# Run a genetic algorithm over boolean feature-subset masks, evaluated by fitness_fn against
-# (X, y). Standard operators: tournament selection, uniform crossover, bit-flip mutation, and
-# elitism (the top elitism_count individuals survive each generation unchanged).
 def run_genetic_selection(
     X: np.ndarray,
     y: np.ndarray,
@@ -81,6 +74,7 @@ def run_genetic_selection(
     *,
     seed: int | None = None,
 ) -> GeneticSelectionResult:
+    """Execute genetic algorithm to find optimal feature subset mask."""
     config = config or GeneticSelectorConfig()
     if X.ndim != 2:
         raise ValueError(f"X must be 2D (n_samples, n_features), got shape {X.shape}")
@@ -127,5 +121,5 @@ def run_genetic_selection(
 
         population = new_population
 
-    assert best_mask is not None  # population_size >= 2 guarantees at least one evaluation
+    assert best_mask is not None
     return GeneticSelectionResult(best_mask=best_mask, best_fitness=best_fitness, history=history)

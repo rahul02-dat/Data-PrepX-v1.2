@@ -16,16 +16,7 @@ from app.pipeline.rl_optimizer.meta_features import MetaFeatures, compute_meta_f
 ImputerChoice = Literal["mice", "knn"]
 OutlierChoice = Literal["isolation_forest", "lof", "none"]
 
-# Contamination values the outlier-threshold action dimension chooses between (CLAUDE.md §5.1:
-# "outlier-threshold bin"). Kept as an explicit, documented list rather than a continuous
-# parameter so the action space stays discrete and finite, matching the tabular-Q design.
 THRESHOLD_BINS: tuple[float, ...] = (0.02, 0.05, 0.10, 0.20)
-
-# A rough, explicit compute-cost ranking used for the reward's cost penalty (CLAUDE.md §5.1:
-# "reward = Delta(validation metric) ... minus a compute-cost penalty"). MICE is iterative and
-# markedly more expensive than KNN; LOF is O(n^2)-ish and costlier than Isolation Forest; "none"
-# is free. These are relative weights, not measured wall-clock numbers -- recalibrate against
-# real timings once Phase 8's async execution makes per-action cost directly measurable.
 _IMPUTER_COST = {"mice": 0.02, "knn": 0.005}
 _OUTLIER_COST = {"isolation_forest": 0.005, "lof": 0.01, "none": 0.0}
 
@@ -34,9 +25,10 @@ _OUTLIER_COST = {"isolation_forest": 0.005, "lof": 0.01, "none": 0.0}
 class Action:
     imputer: ImputerChoice
     outlier_method: OutlierChoice
-    threshold_bin: int  # index into THRESHOLD_BINS; ignored (but still 0) when method is "none"
+    threshold_bin: int
 
     def as_dict(self) -> dict[str, Any]:
+        """Convert Action to dictionary representation."""
         return {
             "imputer": self.imputer,
             "outlier_method": self.outlier_method,
@@ -47,12 +39,12 @@ class Action:
         }
 
     def compute_cost(self) -> float:
+        """Compute relative compute cost penalty for action choices."""
         return _IMPUTER_COST[self.imputer] + _OUTLIER_COST[self.outlier_method]
 
 
-# Build the full discrete action space: {mice, knn} x {isolation_forest, lof, none} x
-# threshold_bin (threshold_bin only varies when an outlier method is actually selected).
 def build_action_space() -> list[Action]:
+    """Construct discrete action space combining imputation and outlier detection options."""
     actions: list[Action] = []
     for imputer in ("mice", "knn"):
         for outlier_method in ("isolation_forest", "lof"):
@@ -62,12 +54,10 @@ def build_action_space() -> list[Action]:
     return actions
 
 
-# Apply one action's imputation + outlier handling to a feature dataframe, returning the
-# resulting (X, y) with flagged-outlier rows dropped (a chosen outlier method with no
-# behavioral effect wouldn't be a meaningful action for the agent to learn between).
 def apply_action(
     X: pd.DataFrame, y: np.ndarray, action: Action, *, seed: int | None = None
 ) -> tuple[np.ndarray, np.ndarray]:
+    """Apply imputation and outlier detection defined by action to dataset."""
     imputation_config = ImputationConfig(method=action.imputer)
     imputed = impute(X, imputation_config, seed=seed).dataframe
 
@@ -81,9 +71,6 @@ def apply_action(
     outlier_result = detect_outliers(imputed, outlier_config, seed=seed)
     keep_mask = ~outlier_result.dataframe[IS_OUTLIER_COLUMN].to_numpy()
 
-    # Guard against an action flagging away nearly everything on a small/unlucky sample --
-    # falling back to "keep all rows" is safer than returning a near-empty training set that
-    # would make the reward computation itself fail or be meaningless.
     if keep_mask.sum() < max(10, int(0.5 * len(imputed))):
         return imputed.to_numpy(dtype=float), y
 
@@ -103,14 +90,7 @@ class StepResult:
 
 
 class PreprocessingEnv:
-    """Gymnasium-style single-step environment (CLAUDE.md §5.1). One episode = one dataset:
-    reset() observes its meta-features as state, step(action) applies that action's
-    imputation/outlier pipeline, scores it with `reward_fn`, and terminates immediately.
-    There is no natural multi-step transition here (applying a pipeline doesn't produce a "next
-    dataset" to act on again), so this is a contextual bandit expressed as a 1-step MDP --
-    Q-learning's max_a' Q(s',a') term is simply 0 on every update, which QLearningAgent.update
-    handles via next_state_key=None rather than needing a separate code path.
-    """
+    """Contextual bandit environment for preprocessing policy optimization."""
 
     def __init__(self, reward_fn: RewardFn, *, seed: int | None = None):
         self._reward_fn = reward_fn
@@ -120,7 +100,6 @@ class PreprocessingEnv:
         self._task: TaskType | None = None
         self._baseline_score: float | None = None
 
-    # Observe a new dataset's meta-features and cache the no-op-imputed baseline score
     def reset(
         self,
         X: pd.DataFrame,
@@ -129,13 +108,11 @@ class PreprocessingEnv:
         *,
         reference_df: pd.DataFrame | None = None,
     ) -> MetaFeatures:
+        """Reset environment with new dataset, calculate baseline score, and return meta-features."""
         self._X = X
         self._y = y
         self._task = task
 
-        # No-op baseline: plain mean/mode fill, deliberately NOT one of the two imputers the
-        # agent can choose between, so its score is a genuine "did nothing clever" baseline
-        # rather than accidentally matching one of the real actions.
         baseline_X = X.fillna(X.mean(numeric_only=True))
         for col in baseline_X.columns:
             if baseline_X[col].isna().any():
@@ -145,6 +122,7 @@ class PreprocessingEnv:
         return compute_meta_features(X, target=y, reference_df=reference_df)
 
     def step(self, action: Action) -> StepResult:
+        """Execute selected preprocessing action and compute reward delta over baseline."""
         if self._X is None or self._y is None or self._task is None:
             raise RuntimeError("call reset() before step()")
 

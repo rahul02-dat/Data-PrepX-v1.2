@@ -1,21 +1,3 @@
-"""
-Phase 8 — FastAPI jobs router for ml-engine-py.
-
-Endpoints:
-  POST /v1/jobs          Submit a pipeline run; enqueue the Celery chain.
-  GET  /v1/jobs/{job_id}/status  Poll current status (Go gateway polls this).
-
-The Go gateway calls these endpoints instead of running the pipeline in-process.
-It stores the returned celery_task_id on the runs row and polls /status at ~1s
-intervals, turning each status transition into a WebSocket message to the frontend.
-
-Dataset storage (Phase 8 scope):
-  Callers must pre-register their dataset (insert a row into `datasets`) and pass
-  the resulting dataset_id. Uploading a CSV/Parquet file as multipart is deferred
-  to Phase 9 (frontend). For now, the gateway test harness or integration tests
-  can call POST /v1/datasets/register with a JSON-encoded DataFrame to pre-register.
-"""
-
 from __future__ import annotations
 
 import os
@@ -37,26 +19,12 @@ router = APIRouter(prefix="/v1/jobs", tags=["jobs"])
 _GIT_SHA = os.environ.get("GIT_SHA", "dev")
 
 
-# ---------------------------------------------------------------------------
-# Request / response schemas
-# ---------------------------------------------------------------------------
-
-
 class DatasetSpec(BaseModel):
-    """Inline dataset payload — a list of records + ordered column names.
-
-    This is used in Phase 8 where there's no file upload endpoint yet.
-    The gateway passes through what the client submitted, or for tests
-    callers can POST directly to ml-engine-py.
-    """
-
     rows: list[dict[str, Any]]
     columns: list[str]
 
 
 class JobRequest(BaseModel):
-    """Parameters for a new pipeline run."""
-
     dataset: DatasetSpec
     target_column: str
     task_type: str = Field(..., pattern="^(classification|regression)$")
@@ -66,7 +34,6 @@ class JobRequest(BaseModel):
     n_trials: int = Field(30, ge=1, le=500)
     cv_folds: int = Field(5, ge=2, le=20)
     stacking_cv_folds: int = Field(5, ge=2, le=20)
-    # Optional: pass pre-computed reference dataset rows for drift detection.
     reference_dataset: DatasetSpec | None = None
 
 
@@ -83,17 +50,9 @@ class JobStatusResponse(BaseModel):
     last_step: str | None = None
 
 
-# ---------------------------------------------------------------------------
-# POST /v1/jobs
-# ---------------------------------------------------------------------------
-
-
 @router.post("", status_code=status.HTTP_202_ACCEPTED, response_model=JobResponse)
 def submit_job(req: JobRequest) -> JobResponse:
-    """
-    Register a new pipeline run in Postgres, enqueue the Celery task chain,
-    and return the job_id + celery_task_id so the gateway can poll status.
-    """
+    """Register pipeline run in Postgres, enqueue Celery task graph, and return job metadata."""
     df = pd.DataFrame(req.dataset.rows, columns=req.dataset.columns)
     if df.empty:
         raise HTTPException(
@@ -102,11 +61,9 @@ def submit_job(req: JobRequest) -> JobResponse:
         )
 
     config = load_pipeline_config()
-
     conn: psycopg.Connection = get_connection()
     try:
         recorder = LineageRecorder(conn)
-
         schema_json = {col: str(dtype) for col, dtype in df.dtypes.items()}
         dataset_id, _content_hash = recorder.register_dataset(df, schema_json)
 
@@ -125,7 +82,6 @@ def submit_job(req: JobRequest) -> JobResponse:
             detail=f"failed to register run in lineage: {exc}",
         ) from exc
 
-    # Enqueue the Celery pipeline chain
     try:
         async_result = enqueue_pipeline(
             run_id=run_id,
@@ -147,11 +103,9 @@ def submit_job(req: JobRequest) -> JobResponse:
         conn.close()
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"failed to enqueue pipeline tasks (is Redis reachable?): {exc}",
+            detail=f"failed to enqueue pipeline tasks: {exc}",
         ) from exc
 
-    # Persist celery_task_id on the runs row so the gateway polling loop can
-    # retrieve it from Postgres without needing to call this endpoint again.
     try:
         with conn.cursor() as cur:
             cur.execute(
@@ -160,8 +114,6 @@ def submit_job(req: JobRequest) -> JobResponse:
             )
         conn.commit()
     except Exception:
-        # Non-fatal: the task is already enqueued; the task_id is returned in
-        # the response even if the DB write fails. The gateway still works.
         pass
     finally:
         conn.close()
@@ -169,21 +121,9 @@ def submit_job(req: JobRequest) -> JobResponse:
     return JobResponse(job_id=run_id, celery_task_id=celery_task_id)
 
 
-# ---------------------------------------------------------------------------
-# GET /v1/jobs/{job_id}/status
-# ---------------------------------------------------------------------------
-
-
 @router.get("/{job_id}/status", response_model=JobStatusResponse)
 def get_job_status(job_id: str) -> JobStatusResponse:
-    """
-    Return the current status of a run from Postgres.
-
-    The Go gateway polls this at ~1s intervals and turns each new status value
-    into a WebSocket message. The status values match the constants in
-    gateway-go/internal/jobs/model.go: queued, running, gate-check, optimizing,
-    done, failed.
-    """
+    """Fetch current run status and most recent pipeline step from Postgres."""
     conn = get_connection()
     try:
         with conn.cursor() as cur:
@@ -205,8 +145,6 @@ def get_job_status(job_id: str) -> JobStatusResponse:
 
     db_status, celery_task_id = row
 
-    # Also fetch the most recent pipeline_step so the frontend can show
-    # fine-grained progress (e.g. "imputation done, running estimation").
     try:
         with conn.cursor() as cur:
             cur.execute(
