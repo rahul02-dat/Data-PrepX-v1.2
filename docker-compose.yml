@@ -102,7 +102,24 @@ services:
     depends_on:
       - gateway-go
 
+  worker-celery:
+    build:
+      context: ./services/ml-engine-py
+    command: >
+      celery -A app.workers worker
+      --loglevel=info
+      -Q default,gates,preprocessing,estimation,summarization
+      --concurrency=${CELERY_WORKER_CONCURRENCY:-2}
+    environment:
+      DATABASE_URL: "postgres://dataprepx:dataprepx@postgres:5432/dataprepx?sslmode=disable"
+      REDIS_URL: "redis://redis:6379/0"
+      AGENT_ORCHESTRATOR_URL: "http://agent-orchestrator:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
 volumes:
   postgres-data:
   ollama-data:
-  

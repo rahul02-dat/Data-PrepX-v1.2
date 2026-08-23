@@ -38,7 +38,7 @@ func (s *postgresStore) CreateJob(ctx context.Context, req SubmitRequest) (Job, 
 	const q = `
 		INSERT INTO runs (dataset_id, git_sha, config_hash, status)
 		VALUES ($1, $2, $3, 'queued')
-		RETURNING id, dataset_id, status, config_hash, created_at, updated_at
+		RETURNING id, dataset_id, status, config_hash, celery_task_id, created_at, updated_at
 	`
 	row := s.db.QueryRowContext(ctx, q, req.DatasetID, "unknown", hash)
 	return scanJob(row)
@@ -47,7 +47,7 @@ func (s *postgresStore) CreateJob(ctx context.Context, req SubmitRequest) (Job, 
 // Retrieve job by ID from Postgres
 func (s *postgresStore) GetJob(ctx context.Context, id string) (Job, error) {
 	const q = `
-		SELECT id, dataset_id, status, config_hash, created_at, updated_at
+		SELECT id, dataset_id, status, config_hash, celery_task_id, created_at, updated_at
 		FROM runs WHERE id = $1
 	`
 	row := s.db.QueryRowContext(ctx, q, id)
@@ -63,7 +63,7 @@ func (s *postgresStore) UpdateStatus(ctx context.Context, id string, status Stat
 	const q = `
 		UPDATE runs SET status = $2, updated_at = now()
 		WHERE id = $1
-		RETURNING id, dataset_id, status, config_hash, created_at, updated_at
+		RETURNING id, dataset_id, status, config_hash, celery_task_id, created_at, updated_at
 	`
 	row := s.db.QueryRowContext(ctx, q, id, string(status))
 	job, err := scanJob(row)
@@ -116,11 +116,18 @@ func (s *postgresStore) Subscribe(id string) (<-chan Job, func()) {
 func scanJob(row *sql.Row) (Job, error) {
 	var job Job
 	var datasetID sql.NullString
-	if err := row.Scan(&job.ID, &datasetID, &job.Status, &job.ConfigHash, &job.CreatedAt, &job.UpdatedAt); err != nil {
+	var celeryTaskID sql.NullString
+	if err := row.Scan(
+		&job.ID, &datasetID, &job.Status, &job.ConfigHash,
+		&celeryTaskID, &job.CreatedAt, &job.UpdatedAt,
+	); err != nil {
 		return Job{}, err
 	}
 	if datasetID.Valid {
 		job.DatasetID = &datasetID.String
+	}
+	if celeryTaskID.Valid {
+		job.CeleryTaskID = &celeryTaskID.String
 	}
 	return job, nil
 }

@@ -41,4 +41,13 @@ services:
     command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
     ports:
       - "5173:5173"
-      
+
+  worker-celery:
+    volumes:
+      - ./services/ml-engine-py/app:/app/app
+    command: >
+      celery -A app.workers worker
+      --loglevel=debug
+      -Q default,gates,preprocessing,estimation,summarization
+      --concurrency=1
+      --autoreload

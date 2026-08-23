@@ -22,12 +22,13 @@ type SubmitRequest struct {
 }
 
 type Job struct {
-	ID         string    `json:"id"`
-	DatasetID  *string   `json:"dataset_id,omitempty"`
-	Status     Status    `json:"status"`
-	ConfigHash string    `json:"config_hash"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID           string    `json:"id"`
+	DatasetID    *string   `json:"dataset_id,omitempty"`
+	Status       Status    `json:"status"`
+	ConfigHash   string    `json:"config_hash"`
+	CeleryTaskID *string   `json:"celery_task_id,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 type Store interface {
