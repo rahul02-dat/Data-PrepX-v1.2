@@ -1,31 +1,4 @@
-"""
-Phase 6 research artifact: simulated concept-drift stream benchmark.
-
-Run directly (from the REPO ROOT, not services/ml-engine-py -- see note below):
-    services/ml-engine-py/.venv/bin/python3 -m tests.research.benchmark_meta_learning_drift
-
-NOTE ON INVOCATION: `tests/research/` lives at the repo root, not inside services/ml-engine-py.
-`cd services/ml-engine-py && python3 -m tests.research.<module>` -- as documented in
-benchmark_imputation_outliers.py and benchmark_hpo_stacking.py -- does NOT work: `tests` is a
-namespace package resolved relative to the current working directory, and services/ml-engine-py
-has no tests/research/ of its own. Running from the repo root with the ml-engine-py venv's
-python (which has `app` importable via its editable install) is what actually resolves both
-`app.*` and `tests.research.*`. This appears to be a pre-existing documentation bug in the two
-earlier benchmark scripts, not something specific to this one.
-
-Compares three strategies for keeping a classifier current on a non-stationary data stream
-(planner Phase 6 acceptance criterion):
-  - static:  train once on the first batch, never update again.
-  - oracle:  retrain from scratch on every incoming batch's own data (the expensive upper
-             bound the planner names -- "oracle-retrained-every-batch").
-  - maml:    meta-train once (offline, amortized) on a pool of related tasks drawn from the
-             same generating family, then fast-adapt with a handful of gradient steps per
-             incoming batch (app.pipeline.meta_learning.maml.MAMLLearner.adapt).
-
-This benchmark exercises the actual MAMLLearner class from app/pipeline/meta_learning/maml.py
-directly -- it is not a reimplementation. See "What this benchmark does NOT test" below for an
-explicit, important scope boundary around the DriftGate/adaptive_loop.py trigger logic.
-"""
+"""Benchmark evaluating MAML fast adaptation versus static and oracle models on non-stationary data."""
 
 from __future__ import annotations
 
@@ -46,9 +19,9 @@ BATCH_SIZE_REGIMES: dict[str, int] = {
     "large_batch_n100": 100,
 }
 N_META_TASKS = 150
-N_SEGMENTS = 8  # number of distinct concepts in the eval stream
-SEGMENT_LENGTH = 5  # batches per concept before an abrupt concept shift
-ORACLE_TRAIN_EPOCHS = 100  # full from-scratch gradient-descent steps for static/oracle
+N_SEGMENTS = 8
+SEGMENT_LENGTH = 5
+ORACLE_TRAIN_EPOCHS = 100
 
 MAML_CONFIG = MAMLConfig(
     hidden_dim=0,
@@ -65,9 +38,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 REPORT_PATH = REPO_ROOT / "docs" / "research" / "meta_learning_drift_benchmark.md"
 
 
-# Draw one random "concept": a linear decision boundary (w, b) plus a positive-class fraction,
-# which is what makes each concept both a distinct label function AND a distinct class balance
-# (planner: "simulated non-stationary/imbalanced data stream").
+# Generate a random linear concept with varying class balance
 def _sample_concept(rng: np.random.Generator) -> tuple[np.ndarray, float, float]:
     w = rng.normal(scale=2.0, size=INPUT_DIM)
     b = float(rng.normal(scale=0.5))
@@ -75,8 +46,7 @@ def _sample_concept(rng: np.random.Generator) -> tuple[np.ndarray, float, float]
     return w, b, positive_fraction
 
 
-# Draw n samples from a given concept. Features are always standard normal -- only the label
-# function and class balance differ between concepts (see "What this benchmark does NOT test").
+# Generate data batch for given concept parameters
 def _generate_batch(
     w: np.ndarray, b: float, positive_fraction: float, n: int, rng: np.random.Generator
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -91,9 +61,7 @@ def _accuracy(preds: np.ndarray, y: np.ndarray) -> float:
     return float((preds == y).mean())
 
 
-# Build a pool of meta-training tasks: independent random concepts, each with its own
-# support/query split, drawn from the same generating family as the eval stream but never
-# overlapping with it (separate rng).
+# Construct pool of meta-learning training tasks
 def _build_meta_tasks(n_tasks: int, batch_size: int, seed: int) -> list[Task]:
     rng = np.random.default_rng(seed)
     tasks = []
@@ -105,14 +73,13 @@ def _build_meta_tasks(n_tasks: int, batch_size: int, seed: int) -> list[Task]:
     return tasks
 
 
-# Run one full (meta-train once, then evaluate a drifting stream) trial for a given batch size
-# and seed. Returns per-batch accuracy lists for each of the three strategies, plus the
-# gradient-step compute cost each strategy actually spent across the stream.
+# Execute single trial comparing static, oracle, and MAML models across streaming data
 def _run_trial(batch_size: int, seed: int) -> dict:
     meta_tasks = _build_meta_tasks(N_META_TASKS, batch_size, seed=seed)
     maml_learner = MAMLLearner(
         input_dim=INPUT_DIM, task_type="classification", config=MAML_CONFIG
     )
+
     maml_learner.meta_train(meta_tasks)
 
     static_learner = MAMLLearner(

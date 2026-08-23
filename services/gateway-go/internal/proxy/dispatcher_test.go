@@ -11,8 +11,6 @@ import (
 	"dataprepx/gateway-go/internal/proxy"
 )
 
-// --- helpers ---
-
 func makeDispatcherWithServer(t *testing.T, handler http.HandlerFunc) (*proxy.Dispatcher, *httptest.Server, func()) {
 	t.Helper()
 	srv := httptest.NewServer(handler)
@@ -23,8 +21,6 @@ func makeDispatcherWithServer(t *testing.T, handler http.HandlerFunc) (*proxy.Di
 	d := proxy.NewDispatcher()
 	return d, srv, func() { srv.Close() }
 }
-
-// --- happy path ---
 
 func TestDispatcher_Submit_HappyPath(t *testing.T) {
 	handler := func(w http.ResponseWriter, r *http.Request) {
@@ -58,10 +54,7 @@ func TestDispatcher_Submit_HappyPath(t *testing.T) {
 	}
 }
 
-// --- per-user concurrency cap ---
-
 func TestDispatcher_Submit_ConcurrencyCap(t *testing.T) {
-	// Set cap to 2 via env
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusAccepted)
 		_ = json.NewEncoder(w).Encode(map[string]string{
@@ -72,7 +65,6 @@ func TestDispatcher_Submit_ConcurrencyCap(t *testing.T) {
 	d, _, cleanup := makeDispatcherWithServer(t, handler)
 	defer cleanup()
 
-	// Submit 2 jobs (cap is 2) — both should succeed
 	for i := 0; i < 2; i++ {
 		_, err := d.Submit(context.Background(), "user-capped", proxy.DispatchRequest{TaskType: "classification"})
 		if err != nil {
@@ -80,7 +72,6 @@ func TestDispatcher_Submit_ConcurrencyCap(t *testing.T) {
 		}
 	}
 
-	// Third submission should hit the cap
 	_, err := d.Submit(context.Background(), "user-capped", proxy.DispatchRequest{TaskType: "classification"})
 	if err == nil {
 		t.Fatal("expected 429 error when cap exceeded, got nil")
@@ -94,8 +85,6 @@ func TestDispatcher_Submit_ConcurrencyCap(t *testing.T) {
 	}
 }
 
-// --- release slot lets next job through ---
-
 func TestDispatcher_ReleaseSlot_AllowsNextJob(t *testing.T) {
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusAccepted)
@@ -107,7 +96,6 @@ func TestDispatcher_ReleaseSlot_AllowsNextJob(t *testing.T) {
 	d, _, cleanup := makeDispatcherWithServer(t, handler)
 	defer cleanup()
 
-	// Fill cap (2 slots)
 	for i := 0; i < 2; i++ {
 		_, err := d.Submit(context.Background(), "user-rel", proxy.DispatchRequest{TaskType: "classification"})
 		if err != nil {
@@ -115,17 +103,13 @@ func TestDispatcher_ReleaseSlot_AllowsNextJob(t *testing.T) {
 		}
 	}
 
-	// Release one slot
 	d.ReleaseSlot("user-rel")
 
-	// Now a third submit should succeed
 	_, err := d.Submit(context.Background(), "user-rel", proxy.DispatchRequest{TaskType: "classification"})
 	if err != nil {
 		t.Fatalf("expected success after ReleaseSlot, got %v", err)
 	}
 }
-
-// --- different users get independent caps ---
 
 func TestDispatcher_PerUserIsolation(t *testing.T) {
 	handler := func(w http.ResponseWriter, r *http.Request) {
@@ -138,7 +122,6 @@ func TestDispatcher_PerUserIsolation(t *testing.T) {
 	d, _, cleanup := makeDispatcherWithServer(t, handler)
 	defer cleanup()
 
-	// user-A fills their cap
 	for i := 0; i < 2; i++ {
 		_, err := d.Submit(context.Background(), "user-A", proxy.DispatchRequest{TaskType: "classification"})
 		if err != nil {
@@ -146,14 +129,11 @@ func TestDispatcher_PerUserIsolation(t *testing.T) {
 		}
 	}
 
-	// user-B should still be allowed (independent cap)
 	_, err := d.Submit(context.Background(), "user-B", proxy.DispatchRequest{TaskType: "classification"})
 	if err != nil {
 		t.Fatalf("user-B should succeed independently: %v", err)
 	}
 }
-
-// --- PollStatus ---
 
 func TestDispatcher_PollStatus(t *testing.T) {
 	handler := func(w http.ResponseWriter, r *http.Request) {
@@ -176,8 +156,6 @@ func TestDispatcher_PollStatus(t *testing.T) {
 	}
 }
 
-// --- PollStatus 404 ---
-
 func TestDispatcher_PollStatus_NotFound(t *testing.T) {
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
@@ -192,10 +170,8 @@ func TestDispatcher_PollStatus_NotFound(t *testing.T) {
 	}
 }
 
-// --- ml-engine unreachable ---
-
 func TestDispatcher_Submit_Unreachable(t *testing.T) {
-	t.Setenv("ML_ENGINE_URL", "http://127.0.0.1:19999") // nothing listening
+	t.Setenv("ML_ENGINE_URL", "http://127.0.0.1:19999")
 	t.Setenv("PROXY_TIMEOUT", "1")
 	t.Setenv("MAX_CONCURRENT_JOBS_PER_USER", "5")
 	d := proxy.NewDispatcher()
@@ -212,8 +188,6 @@ func TestDispatcher_Submit_Unreachable(t *testing.T) {
 		t.Errorf("expected 503, got %d", de.StatusCode)
 	}
 }
-
-// --- concurrent slot management is race-free ---
 
 func TestDispatcher_ConcurrentSubmit_RaceFree(t *testing.T) {
 	handler := func(w http.ResponseWriter, r *http.Request) {
@@ -236,5 +210,5 @@ func TestDispatcher_ConcurrentSubmit_RaceFree(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	// Test passes if the race detector doesn't fire (run with -race).
 }
+

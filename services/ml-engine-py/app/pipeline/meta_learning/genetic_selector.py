@@ -28,9 +28,7 @@ class GeneticSelectionResult:
 def _random_mask(n_features: int, min_features: int, rng: np.random.Generator) -> np.ndarray:
     """Generate random boolean feature mask with at least min_features active."""
     if min_features > n_features:
-        raise ValueError(
-            f"min_features={min_features} exceeds available features ({n_features})"
-        )
+        raise ValueError(f"min_features={min_features} exceeds available features ({n_features})")
     while True:
         mask = rng.random(n_features) < 0.5
         if mask.sum() >= min_features:

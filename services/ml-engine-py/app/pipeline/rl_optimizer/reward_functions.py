@@ -18,6 +18,7 @@ def full_stack_reward_fn(
     config: OptunaSearchConfig, *, stacking_cv_folds: int = 5, seed: int = 42
 ) -> RewardFn:
     """Build reward function executing Bayesian HPO and stacked ensemble evaluation."""
+
     def _reward(X: np.ndarray, y: np.ndarray, task: TaskType) -> float:
         result = run_stacking(
             X, y, task, config=config, seed=seed, stacking_cv_folds=stacking_cv_folds
@@ -29,6 +30,7 @@ def full_stack_reward_fn(
 
 def fast_surrogate_reward_fn(*, cv_folds: int = 3, seed: int = 42) -> RewardFn:
     """Build fast surrogate reward function evaluating a single random forest."""
+
     def _reward(X: np.ndarray, y: np.ndarray, task: TaskType) -> float:
         model = (
             RandomForestClassifier(n_estimators=50, random_state=seed, n_jobs=1)

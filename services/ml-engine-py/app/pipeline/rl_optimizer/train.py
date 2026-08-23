@@ -86,9 +86,7 @@ def main(argv: list[str] | None = None) -> int:
         reward_fn = full_stack_reward_fn(
             config, stacking_cv_folds=args.stacking_cv_folds, seed=args.seed
         )
-        print(
-            f"Reward: full_stack_reward_fn (n_trials={args.n_trials}, cv_folds={args.cv_folds})"
-        )
+        print(f"Reward: full_stack_reward_fn (n_trials={args.n_trials}, cv_folds={args.cv_folds})")
 
     env = PreprocessingEnv(reward_fn, seed=args.seed)
     actions = build_action_space()

@@ -44,8 +44,6 @@ def compute_run_key(dataset_content_hash: str, config_hash: str, git_sha: str) -
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
-# Compute a transform_code_hash from a function's own source. This is what lets a lineage entry
-# distinguish "same params, different transform implementation" -- if imputation.py's logic
-# changes, this hash changes even though params_json may not, so a stale replay is detectable.
+# Compute SHA256 transform code hash from callable source code
 def hash_source(fn: Callable) -> str:
     return "sha256:" + hashlib.sha256(inspect.getsource(fn).encode("utf-8")).hexdigest()

@@ -1,16 +1,4 @@
-"""
-Smoke test the Phase 4/5 lineage additions against a real Postgres instance.
-
-Usage:
-    cd services/ml-engine-py
-    DATABASE_URL=postgres://dataprepx:dataprepx@localhost:5432/dataprepx?sslmode=disable \\
-        python3 -m tests.smoke_test_lineage_phase4_phase5
-
-This is NOT a pytest test (no assertions-as-test-framework) -- it's a readable, narrated
-end-to-end script you can run once against a real DB to confirm the SQL in lineage.py's new
-methods is actually valid Postgres, not just mock-verified. Exits non-zero and prints the
-exception if anything fails.
-"""
+"""Smoke test lineage persistence against live Postgres instance."""
 
 from __future__ import annotations
 

@@ -1,12 +1,7 @@
-"""
-Imputation and outlier detection benchmark.
-
-Run directly:
-    cd services/ml-engine-py
-    python3 -m tests.research.benchmark_imputation_outliers
-"""
+"""Imputation and outlier detection benchmark harness."""
 
 from __future__ import annotations
+
 
 from pathlib import Path
 

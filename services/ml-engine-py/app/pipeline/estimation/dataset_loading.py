@@ -9,20 +9,12 @@ import pandas as pd
 
 TaskType = Literal["classification", "regression"]
 
-# Numeric targets with more distinct values than this (relative to n_rows) are treated as
-# regression; fewer, or non-numeric, is treated as classification. This mirrors the
-# heuristic pandas/sklearn tooling commonly uses (e.g. a numeric column with only a
-# handful of repeated values is almost always a class label, not a continuous target).
+# Numeric classification threshold ratios
 _MAX_CLASSIFICATION_UNIQUE_RATIO = 0.05
 _MAX_CLASSIFICATION_UNIQUE_ABSOLUTE = 20
 
 _READERS: dict[str, Any] = {
     ".csv": pd.read_csv,
-    # Extension points for later formats (planner: "for now CSV, later various formats").
-    # Uncomment as each is actually needed and tested -- don't wire in an untested reader.
-    # ".parquet": pd.read_parquet,
-    # ".xlsx": pd.read_excel,
-    # ".json": pd.read_json,
 }
 
 
@@ -113,9 +105,7 @@ def load_dataset(
 
 @dataclass(frozen=True)
 class AutoPreprocessReport:
-    """What load_dataset_with_auto_preprocess actually did to the data. Printed by the CLI so
-    the transformation isn't silent even though (unlike the Phase 2/3 pipeline) it isn't
-    recorded to lineage -- this path is for quick exploration, not a reproducible run."""
+    """Summary of operations performed by load_dataset_with_auto_preprocess."""
 
     rows_dropped_missing_target: int
     feature_columns_imputed: list[str]
@@ -123,13 +113,7 @@ class AutoPreprocessReport:
     imputation_diagnostics: dict[str, Any]
 
 
-# Load a dataset file, auto-imputing and one-hot-encoding FEATURE columns only. The target
-# column is never imputed or used as an imputation predictor for features: rows with a missing
-# target are dropped (imputing a label is fabricating ground truth; including the target as a
-# MICE/KNN predictor for features leaks it into "imputed" values a real held-out row wouldn't
-# have). This is a convenience path for quick exploration -- it does not go through
-# lineage.py, so it is not reproducible/versioned the way a real pipeline run must be
-# (CLAUDE.md §2). Use the Phase 2/3 pipeline directly (gates -> impute()) if you need that.
+# Load dataset, impute numeric features, one-hot encode categoricals, and drop missing target rows
 def load_dataset_with_auto_preprocess(
     path: str | Path,
     *,
@@ -160,8 +144,7 @@ def load_dataset_with_auto_preprocess(
             f"available columns: {list(df.columns)}"
         )
 
-    # Drop rows with a missing target BEFORE touching features at all: never fabricate a
-    # label, and never let a to-be-dropped row's features influence imputation of kept rows.
+    # Drop missing target rows
     n_before = len(df)
     df = df.dropna(subset=[resolved_target]).reset_index(drop=True)
     rows_dropped = n_before - len(df)
@@ -170,8 +153,7 @@ def load_dataset_with_auto_preprocess(
     feature_columns = [c for c in df.columns if c != resolved_target]
     X_df = df[feature_columns].copy()
 
-    # Impute FEATURES ONLY -- the target is never passed in, so it cannot leak into imputed
-    # feature values, and cannot itself be imputed.
+    # Impute numeric feature columns
     imputed_cols: list[str] = []
     imputation_diagnostics: dict[str, Any] = {}
     if X_df.isna().any().any():

@@ -55,8 +55,9 @@ def run_adaptive_step(
     genetic_config: GeneticSelectorConfig | None = None,
     seed: int | None = None,
 ) -> AdaptiveStepResult:
-    """Evaluate drift against reference distribution and trigger MAML adaptation when drift is detected."""
+    """Evaluate drift against reference and trigger MAML adaptation when detected."""
     drift_config = drift_config or DriftGateConfig()
+
     genetic_config = genetic_config or GeneticSelectorConfig()
 
     gate = DriftGate(drift_config)

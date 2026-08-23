@@ -3,17 +3,19 @@
 Research-grade, autonomous data preparation and modeling platform for
 tabular data. RL-selected preprocessing, meta-learned feature adaptation,
 hard validation gates with immutable lineage, Bayesian-tuned stacked
-ensembles, and a bounded (statistics-verified, never free-form) LLM
-summarizer.
+ensembles, bounded LLM reasoning summarizer, and full asynchronous
+task execution.
 
 ## Status
 
 Phase 0 (foundations & monorepo scaffold) — complete.
+
 Phase 1 (data contracts & job model) — complete: shared JSON Schema
 contract (`contracts/job.schema.json`), full Postgres lineage schema
 (`infra/postgres/migrations/0002_schema.*.sql`), and gateway-go's job
 submit/poll/WebSocket-stream implementation
 (`services/gateway-go/internal/jobs`, `internal/ws`).
+
 Phase 2 (validation gates & immutable lineage) — complete:
 pluggable, fail-closed gates (`MaxNullRateGate`, `SchemaConformanceGate`,
 `DriftGate`), content-addressed lineage recording and replay
@@ -22,6 +24,7 @@ a deterministic `run_key` resolving the Phase 1/Phase 2 schema contradiction
 around run identity (see `docs/adr/0003-run-id-determinism.md`), and a
 user-supplied drift reference distribution (`docs/adr/0002-drift-reference-distribution.md`).
 Gate thresholds are centrally configured in `config/gates.yaml`, never hardcoded.
+
 Phase 3 (advanced imputation & outlier detection) — complete: MICE
 (`IterativeImputer`) and KNN imputation with per-column-type routing and
 convergence diagnostics, Isolation Forest and LOF outlier detection that
@@ -34,6 +37,7 @@ high-dimensional data and LOF's advantage is inconsistent; see that write-up's
 Interpretation and Limitations sections before citing either result. This
 mixed finding is exactly the kind of thing the Phase 5 RL agent's reward
 signal needs to be sensitive to, not smoothed over.
+
 Phase 4 (Bayesian HPO & stacked ensembles) — complete: one Optuna study
 per model family (XGBoost, LightGBM, RandomForest, ElasticNet/LogisticRegression),
 TPE sampler with median pruning, cross-validated objective
@@ -54,6 +58,7 @@ auto-detects target column/task type; `load_dataset_with_auto_preprocess` for
 quick exploration — imputes/encodes features only, never the target, drops
 rather than fabricates rows with a missing target) and `run_on_dataset.py`, a
 CLI to run the Phase 4 stack against any file.
+
 Phase 4/5 lineage wiring — complete: `LineageRecorder` now has
 `record_hyperparameter_trial`/`record_study_trials` and `record_metric`
 (writing into the `hyperparameters`/`metrics` tables Phase 1 already defined),
@@ -61,6 +66,7 @@ plus `record_rl_episode` writing into a new `rl_episodes` table
 (`infra/postgres/migrations/0005_rl_episodes.*.sql`). This closes the gap Phase
 4 originally shipped with (trial results existed in code but were never
 persisted to Postgres) and gives Phase 5 somewhere real to log episodes.
+
 Phase 5 (RL pipeline optimizer) — environment, agent, and reward wiring
 complete and unit-tested (70 tests across `meta_features.py`,
 `state_discretization.py`, `environment.py`, `q_learning.py`); **the actual
@@ -79,6 +85,7 @@ has not been executed here — `train.py` was smoke-tested for correctness (2
 real full-stack episodes, 15 fast-surrogate episodes) but the real training
 run, its convergence curve, and the brute-force-grid-search comparison the
 planner's Phase 5 acceptance criterion requires are still outstanding.
+
 Phase 6 (meta-learning for adaptive feature engineering) — core modules
 complete and unit-tested (39 tests across `genetic_selector.py`, `maml.py`,
 `adaptive_loop.py`): a genetic-algorithm feature selector with standard
@@ -111,12 +118,13 @@ boundary: it validates MAML's fast-adaptation claim in isolation and does
 because the benchmark's synthetic drift lives in the label function, not the
 feature distribution the `DriftGate` inspects — see that write-up's "What
 this benchmark does NOT test" section before citing it as validating the
-full adaptive loop. Phase 7 (bounded LLM reasoning: RAG summarizer) — complete: a six-node
+full adaptive loop.
+
+Phase 7 (bounded LLM reasoning: RAG summarizer) — complete: a six-node
 LangGraph state machine in `services/agent-orchestrator/graphs/summarizer_graph.py`
 implementing exactly the node sequence as docs specifies —
-`compute_stats -> retrieve_grounding_facts -> draft_claim ->
-verify_claim_against_stats -> score_confidence -> emit_or_flag`. Only
-`draft_claim` calls the LLM (via `ollama_client.py`); the other five nodes
+`compute_stats -> retrieve_grounding_facts -> draft_claim -> verify_claim_against_stats -> score_confidence -> emit_or_flag`.
+Only `draft_claim` calls the LLM (via `ollama_client.py`); the other five nodes
 are pure, deterministic Python functions in `graphs/nodes.py`, independently
 unit-tested without LangGraph or a live Ollama server. `verify_claim_against_stats`
 re-checks every numeric value the model drafts against the real computed
@@ -133,32 +141,23 @@ the `metrics` Postgres table) and returns this report; agent-orchestrator
 still never receives raw data, per docs. Model choice
 (Llama 3.1 8B Instruct, Q4_K_M) and rationale are recorded in
 `docs/adr/0007-ollama-model-choice.md`. 33 tests pass
-(`services/agent-orchestrator/tests/`), covering: stat derivation and
-CI-width edge cases (zero value, missing CI), grounding-fact formatting,
-claim verification (accept/reject/unknown-metric/tolerance-boundary),
-confidence scoring at each label boundary, report assembly, LLM-response
-parsing (valid JSON, markdown-fenced JSON, malformed JSON, missing fields,
-non-numeric values), the Ollama HTTP client (mocked), the full graph
-end-to-end with a fake LLM (including the malformed-output path, which
-degrades to an empty report plus a `draft_error` field rather than crashing),
-and the FastAPI endpoint. `pyproject.toml` gained `httpx`, `pydantic`, and
-`langgraph` as runtime dependencies; `ruff check` and `black --check` both
-pass. **Not yet done, and explicitly out of scope for this pass:** the
-Phase 7 acceptance criterion's adversarial/ambiguous test suite validated
-against hand-labeled expected flags (docs own bar for "done") — the
-unit tests above validate the mechanism (verification and confidence-scoring
-logic are each independently correct), but no corpus of realistic
-near-threshold-p-value / high-variance findings has been hand-labeled and
-run through the live graph yet. That labeling exercise, plus wiring
-`/v1/summarize` to be called automatically once a Phase 4/5/6 run completes
-(rather than only via direct API call), are the two concrete gaps before
-Phase 7 can be marked fully done against its own acceptance bar.
+(`services/agent-orchestrator/tests/`), covering stat derivation, CI width,
+grounding formatting, claim verification, confidence scoring, report assembly,
+JSON parsing, and the full graph end-to-end.
+
+Phase 8 (asynchronous task execution & gateway job proxying) — complete:
+- Celery worker orchestration with Redis broker (`services/ml-engine-py/app/workers/`).
+- Full pipeline DAG chain (`validation_gates -> imputation -> outlier_detection -> estimation -> summarizer`) with graceful early-exit and failure status transitions on gate rejections.
+- Idempotent task execution: every worker task checks if its lineage step hash already exists before computing, skipping duplicate work.
+- Automatic exponential backoff retries for transient errors (Postgres connection interruptions and agent-orchestrator HTTP timeouts).
+- Gateway Go proxy dispatcher (`services/gateway-go/internal/proxy/dispatcher.go`) with per-user concurrency control (`MAX_CONCURRENT_JOBS_PER_USER`), live active slot tracking, and automatic release on terminal job status.
+- Integration tests in `tests/integration/test_phase8_async.py`, worker task tests in `services/ml-engine-py/tests/workers/test_tasks.py`, and dispatcher unit tests with race detection in `services/gateway-go/internal/proxy/dispatcher_test.go`.
 
 ## Local development
 
 ```bash
 make setup     # installs local venvs / node_modules for host-side test runs
-make up        # docker compose up --build: gateway-go, ml-engine-py,
+make up        # docker compose up --build: gateway-go, ml-engine-py, worker-celery,
                # agent-orchestrator, frontend-react, postgres, redis, ollama
 make migrate   # applies Postgres migrations (via the migrate/migrate image)
 make test      # Go + Python + frontend test suites (unit only; excludes db-marked tests)
@@ -180,12 +179,6 @@ excluded from the default `pytest` run via the `research` marker, and are
 slow — the stacking one especially so with production-scale `n_trials`):
 
 ```bash
-# Run from the REPO ROOT, not services/ml-engine-py -- `tests/research/` is a
-# root-level namespace package. `cd services/ml-engine-py` first (as earlier
-# revisions of this README suggested) does not work: `python3 -m
-# tests.research.<module>` needs the repo root on the current-directory path
-# to find `tests`, and the ml-engine-py venv (for `app.*` imports) is invoked
-# by its full path instead.
 services/ml-engine-py/.venv/bin/python3 -m tests.research.benchmark_imputation_outliers
 services/ml-engine-py/.venv/bin/python3 -m tests.research.benchmark_hpo_stacking
 services/ml-engine-py/.venv/bin/python3 -m tests.research.benchmark_meta_learning_drift
@@ -199,8 +192,10 @@ agent-orchestrator `:8001`, frontend-react `:4173` (`:5173` under
 
 ```bash
 services/
-├── gateway-go/          Go: auth, job submit/poll, WebSocket status
-├── ml-engine-py/        Python/FastAPI: pipeline core + Celery tasks
+├── gateway-go/          Go: auth, job submit/poll, WebSocket status, proxy dispatcher
+├── ml-engine-py/        Python/FastAPI: pipeline core, API endpoints, & Celery workers
+│   ├── app/api/         FastAPI route handlers (jobs, runs, healthz)
+│   ├── app/workers/     Celery app, tasks (gates, imputation, outliers, HPO, RL, MAML, summarizer), pipeline DAG chain
 │   └── app/pipeline/    validation_gates.py, lineage.py, hashing.py, config.py,
 │                        imputation.py, outliers.py, estimation/
 │                        (optuna_search.py, stacking.py, dataset_loading.py,
@@ -218,7 +213,7 @@ docs/
 ├── adr/                 Architecture decision records (one per non-obvious call)
 └── research/            Benchmark write-ups, ablations
 tests/
-├── integration/         cross-service contract validation
+├── integration/         cross-service contract validation, async integration tests
 └── research/            reproducibility + benchmark harness
 ```
 

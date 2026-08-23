@@ -1,12 +1,4 @@
-"""
-Phase 8 unit tests for Celery tasks.
-
-These tests run in Celery EAGER mode (CELERY_TASK_ALWAYS_EAGER=True), so tasks
-execute synchronously in-process without a running broker or worker. This makes
-the tests fast and self-contained -- no Redis required.
-
-Idempotency, gate-rejection, and retry behaviour are tested via mocking.
-"""
+"""Unit tests for Celery task executions and retry behavior."""
 
 from __future__ import annotations
 
@@ -15,18 +7,12 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-# Configure Celery for eager synchronous execution before importing tasks
 from app.workers.celery_app import celery_app
 
 celery_app.conf.update(
     task_always_eager=True,
     task_eager_propagates=True,
 )
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 
 def _make_df() -> pd.DataFrame:
@@ -43,16 +29,11 @@ def _df_rows_cols(df: pd.DataFrame) -> tuple[list[dict], list[str]]:
     return df.to_dict(orient="records"), list(df.columns)
 
 
-# ---------------------------------------------------------------------------
-# Idempotency tests
-# ---------------------------------------------------------------------------
-
-
 class TestIdempotency:
-    """Each task must not re-execute if its lineage step already exists."""
+    """Validate task idempotency across pipeline steps."""
 
     def test_imputation_skips_on_existing_step(self):
-        """run_imputation returns 'skipped' if the step was already recorded."""
+        """Verify imputation task skips execution if step is already recorded."""
         from app.workers.tasks import run_imputation
 
         df = _make_df()
@@ -124,20 +105,13 @@ class TestIdempotency:
         assert result["status"] == "skipped"
 
 
-# ---------------------------------------------------------------------------
-# Gate rejection test
-# ---------------------------------------------------------------------------
-
-
 class TestGateRejection:
-    """run_validation_gates must mark the run 'failed' on a gate rejection."""
+    """Verify failed gate validation updates run status."""
 
     def test_gate_rejection_marks_failed(self):
         """A dataset that violates the null-rate gate must write status='failed' to Postgres."""
-
         from app.workers.tasks import run_validation_gates
 
-        # Build a dataset with 100% null rate on feature column — guaranteed rejection
         df = pd.DataFrame(
             {
                 "all_nulls": [None, None, None],
@@ -145,7 +119,6 @@ class TestGateRejection:
             }
         )
         rows, cols = _df_rows_cols(df)
-
         status_transitions = []
 
         def fake_update_status(conn, run_id, status):
@@ -169,33 +142,20 @@ class TestGateRejection:
                         "app.workers.tasks.LineageRecorder",
                         return_value=MagicMock(),
                     ):
-                        # In eager mode Celery swallows Ignore; the task returns
-                        # without raising. What matters is that 'failed' was written.
                         run_validation_gates.apply(
                             args=["run-fail", rows, cols],
                         )
 
-        # 'failed' must have been written at some point during the gate check
         assert (
             "failed" in status_transitions
         ), f"expected 'failed' in status transitions; got {status_transitions}"
 
 
-# ---------------------------------------------------------------------------
-# Retry test
-# ---------------------------------------------------------------------------
-
-
 class TestRetry:
-    """Tasks must retry on transient connection errors."""
+    """Validate task retry mechanisms on transient network/database errors."""
 
     def test_imputation_retries_on_db_error(self):
-        """run_imputation retries when get_connection raises an OSError.
-
-        In Celery eager mode, self.retry() raises celery.exceptions.Retry
-        (not the original exception) on the first retry. We assert that
-        the Retry exception is raised, which proves the retry path was taken.
-        """
+        """Verify imputation task retries on database connection failure."""
         from celery.exceptions import Retry
 
         from app.workers.tasks import run_imputation
@@ -203,7 +163,6 @@ class TestRetry:
         df = _make_df()
         rows, cols = _df_rows_cols(df)
 
-        # get_connection raises on every call → task hits the retry path
         with patch(
             "app.workers.tasks.get_connection",
             side_effect=OSError("connection refused"),
@@ -215,10 +174,7 @@ class TestRetry:
                 ).get()
 
     def test_summarizer_retries_on_http_error(self):
-        """run_summarizer retries when agent-orchestrator returns 503.
-
-        In eager mode, self.retry() raises celery.exceptions.Retry.
-        """
+        """Verify summarizer task retries on 503 response from orchestrator."""
         import httpx
         from celery.exceptions import Retry
 

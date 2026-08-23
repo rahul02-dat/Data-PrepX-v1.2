@@ -136,7 +136,9 @@ def run_validation_gates(
         if not gate_result.passed:
             _update_run_status(conn, run_id, "failed")
             failures = [{"gate": r.gate_name, "reason": r.reason} for r in gate_result.failures]
-            log.warning("run_validation_gates: gate REJECTED run_id=%s failures=%s", run_id, failures)
+            log.warning(
+                "run_validation_gates: gate REJECTED run_id=%s failures=%s", run_id, failures
+            )
             self.update_state(state="FAILURE", meta={"run_id": run_id, "gate_failures": failures})
             raise Ignore()
 
@@ -464,7 +466,9 @@ def run_rl_episode(
                 (run_id, episode_number),
             )
             if cur.fetchone():
-                log.info("run_rl_episode: idempotent skip run_id=%s episode=%d", run_id, episode_number)
+                log.info(
+                    "run_rl_episode: idempotent skip run_id=%s episode=%d", run_id, episode_number
+                )
                 return {
                     "status": "skipped",
                     "episode_number": episode_number,
@@ -666,12 +670,17 @@ def run_summarizer(
             resp.raise_for_status()
             report = resp.json()
         except httpx.HTTPStatusError as exc:
-            log.error("run_summarizer: orchestrator status %d for run %s", exc.response.status_code, run_id)
+            log.error(
+                "run_summarizer: orchestrator status %d for run %s",
+                exc.response.status_code,
+                run_id,
+            )
             raise self.retry(exc=exc, countdown=_backoff(self.request.retries))
         except httpx.RequestError as exc:
             raise self.retry(exc=exc, countdown=_backoff(self.request.retries))
 
-        output_hash = "sha256:" + hashlib.sha256(json.dumps(report, sort_keys=True).encode()).hexdigest()
+        encoded_report = json.dumps(report, sort_keys=True).encode()
+        output_hash = "sha256:" + hashlib.sha256(encoded_report).hexdigest()
 
         recorder = LineageRecorder(conn)
         recorder.record_pipeline_step(

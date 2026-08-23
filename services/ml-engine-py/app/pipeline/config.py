@@ -52,7 +52,8 @@ class ImputationConfig:
             raise ValueError(f"imputation.method must be 'mice' or 'knn', got {self.method!r}")
         if self.categorical_strategy not in ("most_frequent",):
             raise ValueError(
-                f"imputation.categorical_strategy must be 'most_frequent', got {self.categorical_strategy!r}"
+                "imputation.categorical_strategy must be 'most_frequent', "
+                f"got {self.categorical_strategy!r}"
             )
 
 
@@ -67,7 +68,8 @@ class OutlierDetectionConfig:
     def __post_init__(self) -> None:
         if self.method not in ("isolation_forest", "lof", "none"):
             raise ValueError(
-                f"outlier_detection.method must be 'isolation_forest', 'lof', or 'none', got {self.method!r}"
+                "outlier_detection.method must be 'isolation_forest', 'lof', or 'none', "
+                f"got {self.method!r}"
             )
         if not (0.0 < self.contamination < 0.5):
             raise ValueError(
@@ -90,7 +92,8 @@ class EstimationConfig:
         for fam in self.tree_model_families:
             if fam not in _VALID_TREE_FAMILIES:
                 raise ValueError(
-                    f"estimation.tree_model_families entries must be one of {sorted(_VALID_TREE_FAMILIES)}, got {fam!r}"
+                    f"estimation.tree_model_families entries must be one of "
+                    f"{sorted(_VALID_TREE_FAMILIES)}, got {fam!r}"
                 )
         if self.n_trials < 1:
             raise ValueError(f"estimation.n_trials must be >= 1, got {self.n_trials}")
@@ -99,14 +102,15 @@ class EstimationConfig:
 
     def all_families(self) -> tuple[str, ...]:
         """Return full list of configured model families including linear model if enabled."""
-        families = tuple(self.tree_model_families)
         if self.include_linear_family:
-            families = families + ("linear",)
-        return families
+            return (*self.tree_model_families, "linear")
+        return self.tree_model_families
 
 
 @dataclass(frozen=True)
 class RLOptimizerConfig:
+    enabled: bool = True
+    n_episodes: int = 50
     alpha: float = 0.1
     gamma: float = 0.9
     epsilon: float = 0.3
@@ -117,7 +121,8 @@ class RLOptimizerConfig:
     def __post_init__(self) -> None:
         if self.reward_mode not in ("full_stack", "fast_surrogate"):
             raise ValueError(
-                f"rl_optimizer.reward_mode must be 'full_stack' or 'fast_surrogate', got {self.reward_mode!r}"
+                "rl_optimizer.reward_mode must be 'full_stack' or 'fast_surrogate', "
+                f"got {self.reward_mode!r}"
             )
         if not (0.0 < self.alpha <= 1.0):
             raise ValueError(f"rl_optimizer.alpha must be in (0, 1], got {self.alpha}")
@@ -157,7 +162,8 @@ class GeneticSelectorConfig:
             )
         if self.elitism_count < 0 or self.elitism_count >= self.population_size:
             raise ValueError(
-                f"genetic_selector.elitism_count must be in [0, population_size), got {self.elitism_count}"
+                "genetic_selector.elitism_count must be in [0, population_size), "
+                f"got {self.elitism_count}"
             )
         if self.min_features < 1:
             raise ValueError(f"genetic_selector.min_features must be >= 1, got {self.min_features}")
@@ -231,7 +237,7 @@ def load_pipeline_config(path: Path | None = None) -> PipelineConfig:
     resolved = path or config_path()
     if not resolved.exists():
         raise FileNotFoundError(
-            f"Gate config not found at {resolved}. Set GATE_CONFIG_PATH or restore config/gates.yaml."
+            "Gate config not found. Set GATE_CONFIG_PATH or restore " "config/gates.yaml."
         )
     with resolved.open("r", encoding="utf-8") as f:
         raw = yaml.safe_load(f) or {}

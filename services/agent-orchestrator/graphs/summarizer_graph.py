@@ -30,20 +30,14 @@ class SummarizerState(TypedDict, total=False):
     report: dict
 
 
-# Build the six-node LangGraph state machine. `generate_fn` defaults to a real OllamaClient but
-# is injectable so tests never need a live Ollama server -- draft_claim is the only node that
-# calls it, every other node is pure and tested directly against nodes.py.
+# Build the six-node LangGraph state machine for metric summarization
 def build_summarizer_graph(
     *, config: SummarizerConfig | None = None, generate_fn: GenerateFn | None = None
 ):
     config = config or load_summarizer_config()
     generate_fn = generate_fn or OllamaClient(config).generate
 
-    # Reconstruct ComputedStat objects from the state dict rather than closing over mutable
-    # state. The compiled graph object may be reused across concurrent invocations (e.g. one
-    # FastAPI app instance serving multiple requests); a shared mutable closure would let one
-    # request's stats leak into another's verification step. State is the only channel LangGraph
-    # itself guarantees is per-invocation.
+    # Helper to index computed stats by metric name
     def _stats_by_name(state: SummarizerState) -> dict[str, ComputedStat]:
         return {s["name"]: ComputedStat(**s) for s in state["computed_stats"]}
 
@@ -66,8 +60,6 @@ def build_summarizer_graph(
         try:
             claims = parse_drafted_claims(raw_response)
         except ClaimParseError as exc:
-            # A malformed draft is not a crash: emit_or_flag will simply have nothing to
-            # verify, and the caller sees why via draft_error rather than a 500.
             return {"drafted_claims": [], "draft_error": str(exc)}
         return {"drafted_claims": [c.to_dict() for c in claims], "draft_error": None}
 

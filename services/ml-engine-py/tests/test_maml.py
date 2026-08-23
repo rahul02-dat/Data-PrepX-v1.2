@@ -7,8 +7,7 @@ from app.pipeline.meta_learning.maml import MAMLLearner, Task
 
 
 def _make_regression_tasks(n_tasks=40, n_support=20, n_query=20, input_dim=3, seed=0):
-    """Each task is y = w_task . x + b_task + noise, with w_task/b_task drawn per task from a
-    shared distribution -- a family of related-but-distinct linear tasks."""
+    """Generate synthetic regression task distribution."""
     rng = np.random.default_rng(seed)
     tasks = []
     for _ in range(n_tasks):
@@ -26,13 +25,7 @@ def _make_regression_tasks(n_tasks=40, n_support=20, n_query=20, input_dim=3, se
 
 
 def _make_sine_tasks(n_tasks, n_support, n_query, seed):
-    """Canonical MAML few-shot regression benchmark (Finn et al. 2017): each task is a sine
-    wave y = A*sin(x - phase) with amplitude A and phase drawn per task. A shallow MLP with a
-    good meta-learned initialization should fit a held-out sine from a handful of points and
-    a few gradient steps; a randomly-initialized MLP given the same tiny budget should not,
-    since fitting a sine shape from scratch in 5 steps on 10 points is a genuinely hard
-    from-scratch problem -- this is what makes the comparison a real test of MAML's claim
-    rather than an artifact of an easy, near-convex task."""
+    """Generate synthetic sine wave few-shot regression tasks."""
     rng = np.random.default_rng(seed)
     tasks = []
     for _ in range(n_tasks):
@@ -140,11 +133,7 @@ def test_meta_trained_init_adapts_faster_than_random_init():
             _mse(random_learner.predict(task.X_query, random_adapted), task.y_query)
         )
 
-    # After the same small adaptation budget (5 gradient steps, 10 support points), the
-    # meta-trained initialization should generalize to a held-out sine task's query set better
-    # than a randomly-initialized model given the identical budget -- fitting an arbitrary sine
-    # from 10 points in 5 steps is hard from scratch, which is what makes this a real test of
-    # MAML's claim rather than an artifact of an easy, near-convex task.
+    # Meta-learned initialization generalizes better than random initialization
     assert np.mean(meta_errors) < np.mean(random_errors)
 
 

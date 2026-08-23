@@ -1,22 +1,7 @@
-"""
-Optuna HPO + stacked ensemble benchmark.
-
-Run directly:
-    cd services/ml-engine-py
-    python3 -m tests.research.benchmark_hpo_stacking
-
-Datasets are deliberately different from Phase 3's benchmark
-(tests/research/benchmark_imputation_outliers.py), per the planner's requirement for >=3
-datasets spanning classification and regression:
-  - digits: real, sklearn-bundled 10-class classification (no network access required)
-  - synthetic_imbalanced: make_classification, binary, ~85/15 class imbalance
-  - synthetic_regression: make_regression with additive noise
-
-Baseline = a single default-hyperparameter RandomForest (Phase 4's "fixed-default single
-model" comparator, per CLAUDE.md Phase 4 acceptance criteria).
-"""
+"""Optuna hyperparameter optimization and stacked ensemble benchmark harness."""
 
 from __future__ import annotations
+
 
 from pathlib import Path
 

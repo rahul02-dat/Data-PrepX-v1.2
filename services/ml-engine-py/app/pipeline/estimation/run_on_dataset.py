@@ -1,17 +1,4 @@
-"""
-Run Phase 4 (Optuna HPO + stacking) against an arbitrary user-supplied dataset file.
-
-Usage:
-    cd services/ml-engine-py
-    python3 -m app.pipeline.estimation.run_on_dataset --path /path/to/data.csv
-    python3 -m app.pipeline.estimation.run_on_dataset \
-        --path /path/to/data.csv --target-column price --task regression --n-trials 30
-
-Target column and task type are auto-detected if not given (see dataset_loading.py).
-Feature columns must already be numeric and fully imputed -- run Phase 2 gates and Phase 3
-imputation first if that's not already true for your file; this script deliberately does not
-silently encode or impute, since that would make the run's lineage/config_hash misleading.
-"""
+"""Run Optuna HPO and stacked ensemble training on dataset file."""
 
 from __future__ import annotations
 

@@ -108,8 +108,9 @@ class PreprocessingEnv:
         *,
         reference_df: pd.DataFrame | None = None,
     ) -> MetaFeatures:
-        """Reset environment with new dataset, calculate baseline score, and return meta-features."""
+        """Reset environment, calculate baseline score, and return dataset meta-features."""
         self._X = X
+
         self._y = y
         self._task = task
 

@@ -39,10 +39,9 @@ class ClaimParseError(ValueError):
     pass
 
 
-# Parse a raw LLM response into DraftedClaim objects. Any malformed entry raises ClaimParseError
-# rather than silently guessing -- an ungrounded claim slipping through is worse than a failed
-# draft.
+# Parse raw LLM response string into structured DraftedClaim instances
 def parse_drafted_claims(raw_response: str) -> list[DraftedClaim]:
+
     cleaned = _strip_code_fences(raw_response)
     try:
         data = json.loads(cleaned)

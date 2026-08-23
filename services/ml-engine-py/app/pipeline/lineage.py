@@ -91,7 +91,9 @@ class LineageRecorder:
             cur.execute("SELECT id FROM runs WHERE run_key = %s", (run_key,))
             row = cur.fetchone()
             if row is None:
-                raise RuntimeError(f"run_key {run_key} conflicted on insert but no row found on lookup")
+                raise RuntimeError(
+                    f"run_key {run_key} conflicted on insert but no row found on lookup"
+                )
             return str(row["id"]), run_key, False
 
     def record_gate_chain(self, run_id: str, gate_chain: GateChainResult) -> None:

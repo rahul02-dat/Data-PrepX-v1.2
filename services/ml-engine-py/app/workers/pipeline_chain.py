@@ -28,7 +28,7 @@ def enqueue_pipeline(
     reference_rows: list[dict] | None = None,
     reference_columns: list[str] | None = None,
 ) -> AsyncResult:
-    """Build and enqueue the pipeline Celery DAG (gates -> preprocessing group -> estimation -> summarizer)."""
+    """Build and enqueue the pipeline Celery DAG (gates -> preprocessing -> estimation)."""
     gates_sig = run_validation_gates.si(
         run_id,
         dataset_rows,
