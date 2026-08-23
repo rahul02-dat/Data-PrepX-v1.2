@@ -60,9 +60,7 @@ log = logging.getLogger(__name__)
 # Helpers
 # ---------------------------------------------------------------------------
 
-_AGENT_ORCHESTRATOR_URL = os.environ.get(
-    "AGENT_ORCHESTRATOR_URL", "http://localhost:8001"
-)
+_AGENT_ORCHESTRATOR_URL = os.environ.get("AGENT_ORCHESTRATOR_URL", "http://localhost:8001")
 _SUMMARIZER_TIMEOUT_S = int(os.environ.get("SUMMARIZER_TIMEOUT_S", "120"))
 
 
@@ -178,10 +176,7 @@ def run_validation_gates(
         if not gate_result.passed:
             _update_run_status(conn, run_id, "failed")
             # Hard failure — do not retry; gate rejection is deterministic.
-            failures = [
-                {"gate": r.gate_name, "reason": r.reason}
-                for r in gate_result.failures
-            ]
+            failures = [{"gate": r.gate_name, "reason": r.reason} for r in gate_result.failures]
             log.warning(
                 "run_validation_gates: gate REJECTED run_id=%s failures=%s",
                 run_id,
@@ -431,9 +426,7 @@ def run_estimation(
     stacking_cv_folds: int = 5,
 ) -> dict[str, Any]:
     """Run Phase 4 Bayesian HPO + stacked ensemble and record all trials in lineage."""
-    log.info(
-        "run_estimation: run_id=%s task_type=%s n_trials=%d", run_id, task_type, n_trials
-    )
+    log.info("run_estimation: run_id=%s task_type=%s n_trials=%d", run_id, task_type, n_trials)
     try:
         conn = get_connection()
     except Exception as exc:
@@ -594,15 +587,14 @@ def run_rl_episode(
         y_series = df[target_column]
         y = y_series.to_numpy()
 
+        from app.pipeline.estimation.optuna_search import OptunaSearchConfig
         from app.pipeline.rl_optimizer.environment import PreprocessingEnv, build_action_space
-        from app.pipeline.rl_optimizer.meta_features import compute_meta_features
         from app.pipeline.rl_optimizer.q_learning import QLearningAgent
         from app.pipeline.rl_optimizer.reward_functions import (
             fast_surrogate_reward_fn,
             full_stack_reward_fn,
         )
         from app.pipeline.rl_optimizer.state_discretization import discretize_state
-        from app.pipeline.estimation.optuna_search import OptunaSearchConfig
 
         if fast_surrogate:
             reward_fn = fast_surrogate_reward_fn(cv_folds=3, seed=seed)
@@ -714,10 +706,10 @@ def run_maml_adaptation(
             log.info("run_maml_adaptation: idempotent skip run_id=%s", run_id)
             return {"status": "skipped", "output_hash": existing}
 
+        import numpy as np
+
         from app.pipeline.meta_learning.adaptive_loop import AdaptiveState, run_adaptive_step
         from app.pipeline.meta_learning.maml import MAMLLearner
-
-        import numpy as np
 
         X_ref_num = ref_df.select_dtypes(include="number").to_numpy(dtype=float)
         n_features = X_ref_num.shape[1]
@@ -849,12 +841,11 @@ def run_summarizer(
         except httpx.RequestError as exc:
             raise self.retry(exc=exc, countdown=_backoff(self.request.retries))
 
-        import json
         import hashlib
+        import json
 
         output_hash = (
-            "sha256:"
-            + hashlib.sha256(json.dumps(report, sort_keys=True).encode()).hexdigest()
+            "sha256:" + hashlib.sha256(json.dumps(report, sort_keys=True).encode()).hexdigest()
         )
 
         recorder = LineageRecorder(conn)

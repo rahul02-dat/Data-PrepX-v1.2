@@ -38,7 +38,7 @@ Note on data passing:
 
 from __future__ import annotations
 
-from celery import chain, chord, group
+from celery import chain, group
 from celery.result import AsyncResult
 
 from app.workers.tasks import (

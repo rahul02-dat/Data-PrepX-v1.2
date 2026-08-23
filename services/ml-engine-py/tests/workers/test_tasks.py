@@ -28,6 +28,7 @@ celery_app.conf.update(
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_df() -> pd.DataFrame:
     return pd.DataFrame(
         {
@@ -133,8 +134,8 @@ class TestGateRejection:
 
     def test_gate_rejection_marks_failed(self):
         """A dataset that violates the null-rate gate must write status='failed' to Postgres."""
+
         from app.workers.tasks import run_validation_gates
-        from celery.exceptions import Ignore
 
         # Build a dataset with 100% null rate on feature column — guaranteed rejection
         df = pd.DataFrame(
@@ -175,9 +176,9 @@ class TestGateRejection:
                         )
 
         # 'failed' must have been written at some point during the gate check
-        assert "failed" in status_transitions, (
-            f"expected 'failed' in status transitions; got {status_transitions}"
-        )
+        assert (
+            "failed" in status_transitions
+        ), f"expected 'failed' in status transitions; got {status_transitions}"
 
 
 # ---------------------------------------------------------------------------
@@ -195,8 +196,9 @@ class TestRetry:
         (not the original exception) on the first retry. We assert that
         the Retry exception is raised, which proves the retry path was taken.
         """
-        from app.workers.tasks import run_imputation
         from celery.exceptions import Retry
+
+        from app.workers.tasks import run_imputation
 
         df = _make_df()
         rows, cols = _df_rows_cols(df)
@@ -218,8 +220,9 @@ class TestRetry:
         In eager mode, self.retry() raises celery.exceptions.Retry.
         """
         import httpx
-        from app.workers.tasks import run_summarizer
         from celery.exceptions import Retry
+
+        from app.workers.tasks import run_summarizer
 
         mock_conn = MagicMock()
         mock_cursor = MagicMock()

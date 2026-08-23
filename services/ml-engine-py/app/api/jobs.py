@@ -24,7 +24,6 @@ from typing import Any
 import pandas as pd
 import psycopg
 from fastapi import APIRouter, HTTPException, status
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.pipeline.config import load_pipeline_config
@@ -60,13 +59,9 @@ class JobRequest(BaseModel):
 
     dataset: DatasetSpec
     target_column: str
-    task_type: str = Field(
-        ..., pattern="^(classification|regression)$"
-    )
+    task_type: str = Field(..., pattern="^(classification|regression)$")
     imputation_method: str = Field("mice", pattern="^(mice|knn)$")
-    outlier_method: str = Field(
-        "isolation_forest", pattern="^(isolation_forest|lof|none)$"
-    )
+    outlier_method: str = Field("isolation_forest", pattern="^(isolation_forest|lof|none)$")
     seed: int = 42
     n_trials: int = Field(30, ge=1, le=500)
     cv_folds: int = Field(5, ge=2, le=20)
@@ -145,9 +140,7 @@ def submit_job(req: JobRequest) -> JobResponse:
             cv_folds=req.cv_folds,
             stacking_cv_folds=req.stacking_cv_folds,
             reference_rows=req.reference_dataset.rows if req.reference_dataset else None,
-            reference_columns=(
-                req.reference_dataset.columns if req.reference_dataset else None
-            ),
+            reference_columns=(req.reference_dataset.columns if req.reference_dataset else None),
         )
         celery_task_id = async_result.id
     except Exception as exc:
