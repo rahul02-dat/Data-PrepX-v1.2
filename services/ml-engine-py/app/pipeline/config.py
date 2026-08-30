@@ -7,7 +7,11 @@ from typing import Any
 
 import yaml
 
-_DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[4] / "config" / "gates.yaml"
+_file_path = Path(__file__).resolve()
+if len(_file_path.parents) >= 5:
+    _DEFAULT_CONFIG_PATH = _file_path.parents[4] / "config" / "gates.yaml"
+else:
+    _DEFAULT_CONFIG_PATH = Path("config/gates.yaml")
 _VALID_TREE_FAMILIES = {"xgboost", "lightgbm", "random_forest"}
 
 

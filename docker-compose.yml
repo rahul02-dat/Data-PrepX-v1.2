@@ -68,6 +68,8 @@ services:
   ml-engine-py:
     build:
       context: ./services/ml-engine-py
+    volumes:
+      - ./config:/app/config
     environment:
       DATABASE_URL: "postgres://dataprepx:dataprepx@postgres:5432/dataprepx?sslmode=disable"
       REDIS_URL: "redis://redis:6379/0"
@@ -105,6 +107,8 @@ services:
   worker-celery:
     build:
       context: ./services/ml-engine-py
+    volumes:
+      - ./config:/app/config
     command: >
       celery -A app.workers worker
       --loglevel=info
