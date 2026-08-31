@@ -36,9 +36,24 @@ func main() {
 	mux.HandleFunc("GET /v1/jobs/{id}/ws", wsHandler.Stream)
 
 	log.Printf("gateway-go listening on %s", addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	if err := http.ListenAndServe(addr, corsMiddleware(mux)); err != nil {
 		log.Fatalf("gateway-go: server exited: %v", err)
 	}
+}
+
+// corsMiddleware adds basic CORS headers.
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // dispatchJob dispatches a job to ml-engine-py and polls for status updates.
