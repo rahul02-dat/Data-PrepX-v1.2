@@ -53,6 +53,14 @@ def _backoff(retries: int, base: int = 5) -> int:
     return base * (2**retries)
 
 
+def _prepare_target(y: np.ndarray, task_type: str) -> np.ndarray:
+    """Ensure classification targets are properly encoded as 0..N-1."""
+    if task_type == "classification":
+        from sklearn.preprocessing import LabelEncoder
+        return LabelEncoder().fit_transform(y)
+    return y
+
+
 def _update_run_status(conn: psycopg.Connection, run_id: str, status: str) -> None:
     """Update runs row status in Postgres."""
     with conn.cursor() as cur:
@@ -368,7 +376,7 @@ def run_estimation(
             return {"status": "skipped", "output_hash": existing, "run_id": run_id}
 
         X = df.drop(columns=[target_column])
-        y = df[target_column].to_numpy()
+        y = _prepare_target(df[target_column].to_numpy(), task_type)
 
         cfg = OptunaSearchConfig(n_trials=n_trials, cv_folds=cv_folds, seed=seed)
         result = run_stacking(
@@ -482,7 +490,7 @@ def run_rl_episode(
 
         df = pd.DataFrame(dataset_rows, columns=dataset_columns)
         X = df.drop(columns=[target_column])
-        y = df[target_column].to_numpy()
+        y = _prepare_target(df[target_column].to_numpy(), task_type)
 
         if fast_surrogate:
             reward_fn = fast_surrogate_reward_fn(cv_folds=3, seed=seed)
@@ -580,11 +588,9 @@ def run_maml_adaptation(
         learner = MAMLLearner(
             input_dim=n_features,
             task_type=task_type,
-            inner_lr=0.01,
-            inner_steps=5,
         )
 
-        y_col = batch_df[target_column].to_numpy()
+        y_col = _prepare_target(batch_df[target_column].to_numpy(), task_type)
         batch_features = batch_df.drop(columns=[target_column])
 
         initial_state = AdaptiveState(
