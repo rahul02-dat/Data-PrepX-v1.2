@@ -23,8 +23,8 @@ func main() {
 	dispatcher := proxy.NewDispatcher()
 
 	jobsHandler := jobs.NewHandler(store)
-	jobsHandler.OnCreated(func(job jobs.Job) {
-		go dispatchJob(store, dispatcher, job)
+	jobsHandler.OnCreated(func(job jobs.Job, req jobs.SubmitRequest) {
+		go dispatchJob(store, dispatcher, job, req.DispatchRequest)
 	})
 
 	wsHandler := ws.NewHandler(store)
@@ -57,14 +57,9 @@ func corsMiddleware(next http.Handler) http.Handler {
 }
 
 // dispatchJob dispatches a job to ml-engine-py and polls for status updates.
-func dispatchJob(store jobs.Store, dispatcher *proxy.Dispatcher, job jobs.Job) {
+func dispatchJob(store jobs.Store, dispatcher *proxy.Dispatcher, job jobs.Job, req proxy.DispatchRequest) {
 	const userID = "anonymous"
 	ctx := context.Background()
-
-	req := proxy.DispatchRequest{
-		TaskType:     "classification",
-		TargetColumn: "",
-	}
 
 	dr, err := dispatcher.Submit(ctx, userID, req)
 	if err != nil {

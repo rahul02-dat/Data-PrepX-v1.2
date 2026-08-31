@@ -8,7 +8,7 @@ import (
 
 type Handler struct {
 	store     Store
-	onCreated func(Job)
+	onCreated func(Job, SubmitRequest)
 }
 
 // Construct new job HTTP handler
@@ -17,7 +17,7 @@ func NewHandler(store Store) *Handler {
 }
 
 // Register job creation callback
-func (h *Handler) OnCreated(fn func(Job)) {
+func (h *Handler) OnCreated(fn func(Job, SubmitRequest)) {
 	h.onCreated = fn
 }
 
@@ -40,7 +40,7 @@ func (h *Handler) Submit(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, job)
 
 	if h.onCreated != nil {
-		h.onCreated(job)
+		h.onCreated(job, req)
 	}
 }
 

@@ -98,6 +98,7 @@ def run_validation_gates(
     *,
     reference_rows: list[dict] | None = None,
     reference_columns: list[str] | None = None,
+    expected_schema: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Execute dataset validation gate chain and record lineage."""
     log.info("run_validation_gates: run_id=%s", run_id)
@@ -119,16 +120,20 @@ def run_validation_gates(
             return {"status": "skipped", "output_hash": existing, "passed": True}
 
         cfg = load_pipeline_config()
-        gates = [
-            MaxNullRateGate(cfg.max_null_rate_gate),
-            SchemaConformanceGate(cfg.schema_conformance_gate),
-        ]
+        gates = []
+        if cfg.max_null_rate_gate.enabled:
+            gates.append(MaxNullRateGate(cfg.max_null_rate_gate))
+        
+        if cfg.schema_conformance_gate.enabled and expected_schema is not None:
+            gates.append(SchemaConformanceGate(cfg.schema_conformance_gate))
+
         ref_df: pd.DataFrame | None = None
         if reference_rows and reference_columns:
             ref_df = pd.DataFrame(reference_rows, columns=reference_columns)
-            gates.append(DriftGate(cfg.drift_gate))
+            if cfg.drift_gate.enabled:
+                gates.append(DriftGate(cfg.drift_gate))
 
-        gate_result = run_gates(gates, df, reference_df=ref_df)
+        gate_result = run_gates(gates, df, expected_schema=expected_schema, reference_df=ref_df)
 
         recorder = LineageRecorder(conn)
         recorder.record_gate_chain(run_id, gate_result)

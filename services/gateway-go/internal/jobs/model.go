@@ -3,6 +3,8 @@ package jobs
 import (
 	"context"
 	"time"
+
+	"dataprepx/gateway-go/internal/proxy"
 )
 
 type Status string
@@ -19,6 +21,7 @@ const (
 type SubmitRequest struct {
 	DatasetID *string        `json:"dataset_id,omitempty"`
 	Config    map[string]any `json:"config,omitempty"`
+	proxy.DispatchRequest
 }
 
 type Job struct {
