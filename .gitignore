@@ -25,3 +25,4 @@ services/gateway-go/gateway
 # Internal working context, not committed
 CLAUDE.md
 docs/
+._*
